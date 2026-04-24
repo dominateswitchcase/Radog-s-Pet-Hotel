@@ -1,0 +1,14 @@
+{
+    "name": "radogs-pet-hotel/management-system",
+    "description": "Pet Hotel Management System for Radog’s Kennel",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "ext-oci8": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Radogs\\PetHotel\\": "src/"
+        }
+    }
+}
