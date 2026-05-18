@@ -75,11 +75,11 @@ try {
         </div>
         <nav class="nav nav-pills flex-column mb-auto sidebar-nav">
              <a href="staff_dashboard.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-house-door-fill me-3"></i> Dashboard</a>
-            <a href="staff_encode_reservation.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-calendar-check me-3"></i> Schedule</a>
-            <a href="staff_calendar.php" class="nav-link d-flex align-items-center mb-2" style="background-color: #FA8112; color: white;"><i class="bi bi-calendar3 me-3"></i> Calendar</a>
-            <a href="staff_owner.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-people me-3"></i> Owners</a>
-            <a href="staff_pets.php" class="nav-link d-flex align-items-center mb-2 active  "><i class="bi bi-paw me-3"></i> Pets</a>
-            <a href="staff_checkout.php" class="nav-link d-flex align-items-center mb-2 " ><i class="bi bi-cash-stack me-3"></i> Checkout/Payments</a>
+            <a href="encode_reservation.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-calendar-check me-3"></i> Schedule</a>
+            <a href="calendar.php" class="nav-link d-flex align-items-center mb-2" style="background-color: #FA8112; color: white;"><i class="bi bi-calendar3 me-3"></i> Calendar</a>
+            <a href="owner.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-people me-3"></i> Owners</a>
+            <a href="pets.php" class="nav-link d-flex align-items-center mb-2 active  "><i class="bi bi-paw me-3"></i> Pets</a>
+            <a href="checkout.php" class="nav-link d-flex align-items-center mb-2 " ><i class="bi bi-cash-stack me-3"></i> Checkout/Payments</a>
                <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin' && $_SESSION['is_logged_in'] === true): ?>
     <a href="user_management.php" class="nav-link d-flex align-items-center mb-2">
         <i class="bi bi-gear-fill me-3"></i> User Management

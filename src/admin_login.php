@@ -1,5 +1,7 @@
-<?php
-ob_start(); // Start output buffering to prevent header issues
+<!-- NOT BEING USE ANYMORE -->
+
+<!-- <?php
+ob_start(); 
 session_start();
 require_once '../config/db.php';
 
@@ -90,4 +92,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 <script src="../assets/bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
-</html>
+</html> -->

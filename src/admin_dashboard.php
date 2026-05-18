@@ -9,15 +9,15 @@ if (!isset($_SESSION['account_id'])) {
 }
 
 try {
-    // 1. Total Bookings (All time)
+    // Total Bookings (All time)
     $stmt = $pdo->query("SELECT COUNT(*) FROM BOOKING");
     $total_bookings = $stmt->fetchColumn();
 
-    // 2. Monthly Sales (Sum of Paid Payments)
+    //  Monthly Sales (Sum of Paid Payments)
     $stmt = $pdo->query("SELECT SUM(Total_Amount) FROM PAYMENT WHERE Payment_Status = 'Paid'");
     $monthly_sales = $stmt->fetchColumn() ?: 0;
 
-    // 3. Occupancy Rate (Booked Rooms / Total Rooms)
+    //  Occupancy Rate (Booked Rooms / Total Rooms)
     $stmtTotal = $pdo->query("SELECT COUNT(*) FROM ACCOMMODATION");
     $total_rooms = $stmtTotal->fetchColumn();
     
@@ -26,11 +26,8 @@ try {
     
     $occupancy_rate = ($total_rooms > 0) ? ($booked_rooms / $total_rooms) * 100 : 0;
 
-    // ==========================================
-    // NEW: CHART DATA FETCHING
-    // ==========================================
     
-    // 4. Booking Status Distribution
+    // Booking Status Distribution
     $stmtStatus = $pdo->query("SELECT Booking_Status, COUNT(*) as Status_Count FROM BOOKING GROUP BY Booking_Status");
     $statusData = $stmtStatus->fetchAll(PDO::FETCH_ASSOC);
     
@@ -41,7 +38,7 @@ try {
         $statusCounts[] = $row['STATUS_COUNT'];
     }
 
-    // 5. Revenue Trend (Grouping Paid payments by Check Out Month)
+    //  Revenue Trend (Grouping Paid payments by Check Out Month)
     $revenueQuery = "SELECT TO_CHAR(B.Check_Out_Date, 'MON YYYY') AS Sale_Month, 
                             SUM(P.Total_Amount) AS Monthly_Revenue 
                      FROM PAYMENT P 

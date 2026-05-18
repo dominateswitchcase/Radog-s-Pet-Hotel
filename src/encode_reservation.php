@@ -1,18 +1,17 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/rbac-helpers.php';
 
-// RBAC: Ensure authorized access for staff/admin
-if (!isset($_SESSION['account_id'])) {
-    header("Location: employee_login.php");
-    exit();
-}
+// Session guard
+requireLogin();
+$role = $_SESSION['role'];
 
 $message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $owner_id = filter_input(INPUT_POST, 'owner_id', FILTER_VALIDATE_INT);
-    $pet_id = filter_input(INPUT_POST, 'pet_id', FILTER_VALIDATE_INT);
+    $pet_id = filter_input(INPUT_POST, 'pet_id',     FILTER_VALIDATE_INT);
     $accommodation_id = filter_input(INPUT_POST, 'accommodation_id', FILTER_VALIDATE_INT);
     $check_in = filter_input(INPUT_POST, 'check_in', FILTER_SANITIZE_STRING);
     $check_out = filter_input(INPUT_POST, 'check_out', FILTER_SANITIZE_STRING);
@@ -55,8 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $unit_status = $unit_check->fetchColumn();
 
                 if ($unit_status !== 'Available') {
-                    $message = 'The selected accommodation unit is no longer available.';
-                } else {
+                    // Allow Admin override if explicitly requested
+                    $allow_override = isAdmin() && !empty($_POST['override']);
+                    if (!$allow_override) {
+                        $message = 'The selected accommodation unit is no longer available.';
+                    }
+                }
+
+                if (empty($message)) {
                     try {
                        // Enterprise Transaction Processing
                         $pdo->beginTransaction();
@@ -139,14 +144,184 @@ $all_accommodations = $acc_stmt->fetchAll(PDO::FETCH_ASSOC);
     <link rel="stylesheet" href="../assets/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="../assets/css/custom.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-        body { display: flex; min-height: 100vh; }
-        .sidebar { width: 280px; background: #fff; border-right: 1px solid rgba(0,0,0,.1); position: sticky; top: 0; height: 100vh; }
-        .main-content { flex-grow: 1; background: #f8f9fa; }
+        :root {
+            --orange:      #FA8112;
+            --orange-dk:   #d96a08;
+            --orange-lt:   #fca04a;
+            --black:       #222222;
+            --beige:       #FAF3E1;
+            --gold:        #F5E7C6;
+            --white:       #ffffff;
+            --radius-card:  20px;
+            --radius-input: 12px;
+            --radius-btn:   12px;
+            --shadow-card: 0 24px 70px rgba(15, 23, 42, 0.08);
+            --border-soft: 1px solid rgba(34, 34, 34, 0.08);
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--beige);
+            color: var(--black);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        h1, h2, h3, h4, h5 {
+            font-family: 'Bebas Neue', sans-serif;
+            letter-spacing: 0.05em;
+        }
+
+        .sidebar {
+            width: 272px;
+            flex-shrink: 0;
+            background-color: var(--black);
+            background-image: repeating-linear-gradient(
+                -55deg,
+                transparent,
+                transparent 18px,
+                rgba(250,129,18,0.04) 18px,
+                rgba(250,129,18,0.04) 19px
+            );
+            display: flex;
+            flex-direction: column;
+            padding: 28px 20px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .sidebar-brand {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid rgba(250,129,18,0.15);
+            margin-bottom: 24px;
+        }
+
+        .sidebar-brand img {
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+            filter: drop-shadow(0 0 12px rgba(250,129,18,0.5));
+        }
+
+        .sidebar-brand h2 {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.3rem;
+            color: var(--orange);
+            margin: 0;
+        }
+
+        .sidebar-brand p {
+            font-size: 0.78rem;
+            color: rgba(245,231,198,0.85);
+            margin: 0;
+        }
+
+        .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sidebar-nav .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border-radius: var(--radius-btn);
+            color: rgba(245,231,198,0.8);
+            text-decoration: none;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+
+        .sidebar-nav .nav-link svg {
+            width: 18px;
+            height: 18px;
+            opacity: 0.85;
+        }
+
+        .sidebar-nav .nav-link:hover {
+            background: rgba(250,129,18,0.12);
+            color: var(--white);
+        }
+
+        .sidebar-nav .nav-link.active {
+            background: var(--orange);
+            color: var(--white);
+            font-weight: 600;
+        }
+
+        .sidebar-nav .nav-link.active svg {
+            opacity: 1;
+        }
+
+        .sidebar .mt-auto {
+            margin-top: auto;
+        }
+
+        .main-content {
+            flex-grow: 1;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .bg-panel {
+            background: var(--white);
+            border-radius: var(--radius-card);
+            border: var(--border-soft);
+            box-shadow: var(--shadow-card);
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--black);
+        }
+
+        .form-control,
+        .form-select,
+        textarea {
+            border-radius: var(--radius-input);
+            border: 1px solid rgba(34,34,34,0.1);
+            padding: 0.9rem 1rem;
+        }
+
+        .btn-brand {
+            background: var(--orange);
+            color: var(--white);
+            border-radius: var(--radius-btn);
+            border: none;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .btn-brand:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 30px rgba(250,129,18,0.16);
+        }
+
+        .alert {
+            border-radius: var(--radius-card);
+        }
     </style>
 </head>
 <body>
-    <aside class="sidebar d-flex flex-column p-4" style="background-color: #F5E7C6;">
+    <aside class="sidebar d-flex flex-column p-4">
         <div class="sidebar-brand mb-5 text-center">
             <img src="../img/radog_logo.png" alt="Radog Logo" class="img-fluid mb-3" style="max-height: 90px; width: auto;">
             <div>
@@ -161,7 +336,7 @@ $all_accommodations = $acc_stmt->fetchAll(PDO::FETCH_ASSOC);
             <a href="owner.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-people me-3"></i> Owners</a>
             <a href="pets.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-paw me-3"></i> Pets</a>
             <a href="checkout.php" class="nav-link d-flex align-items-center mb-2" ><i class="bi bi-cash-stack me-3"></i> Checkout/Payments</a>
-            <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
+            <?php if (isAdmin()): ?>
                 <a href="user_management.php" class="nav-link d-flex align-items-center mb-2">
                     <i class="bi bi-gear-fill me-3"></i> User Management
                 </a>
@@ -237,6 +412,12 @@ $all_accommodations = $acc_stmt->fetchAll(PDO::FETCH_ASSOC);
                         <button type="submit" id="submitBtn" class="btn btn-brand w-100 py-2" disabled>
                             <i class="bi bi-calendar-check"></i> Confirm Reservation
                         </button>
+                        <?php if (isAdmin()): ?>
+                            <div class="form-check form-switch mt-3 text-center">
+                                <input class="form-check-input" type="checkbox" id="overrideSwitch" name="override" value="1">
+                                <label class="form-check-label small" for="overrideSwitch">Force Book (Admin override availability)</label>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

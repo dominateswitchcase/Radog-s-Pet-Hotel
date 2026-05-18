@@ -1,12 +1,11 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/rbac-helpers.php';
 
-// RBAC: Ensure authorized access
-if (!isset($_SESSION['account_id'])) {
-    header("Location: employee_login.php");
-    exit();
-}
+// Session guard
+requireLogin();
+$role = $_SESSION['role'];
 
 // 1. Strict Variable Initialization (Fixes the Undefined Variable Warning)
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
@@ -58,14 +57,34 @@ try {
     <link rel="stylesheet" href="../assets/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="../assets/css/custom.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --orange:      #FA8112;
+            --orange-dk:   #d96a08;
+            --orange-lt:   #fca04a;
+            --black:       #222222;
+            --beige:       #FAF3E1;
+            --gold:        #F5E7C6;
+            --white:       #ffffff;
+            --radius-card:  20px;
+            --radius-input: 12px;
+            --radius-btn:   12px;
+            --shadow-card:  0 24px 70px rgba(15, 23, 42, 0.08);
+            --border-soft:  1px solid rgba(34, 34, 34, 0.08);
+        }
+        .sidebar{background:var(--black);color:var(--gold);position:relative}
+        .sidebar::before{content:'';position:absolute;inset:0;background-image:repeating-linear-gradient(-55deg,transparent,transparent 18px,rgba(250,129,18,0.04) 18px,rgba(250,129,18,0.04) 19px);opacity:0.08}
+        .brand h1{font-family:'Bebas Neue',cursive;color:var(--orange);}
+        .user-pill{background:rgba(250,129,18,0.08);padding:8px 12px;border-radius:999px;color:var(--white);display:inline-flex;align-items:center;gap:8px}
         body { display: flex; min-height: 100vh; }
-        .sidebar { width: 280px; background: #fff; border-right: 1px solid rgba(0,0,0,.1); position: sticky; top: 0; height: 100vh; }
         .main-content { flex-grow: 1; background: #f8f9fa; }
     </style>
 </head>
 <body>
-    <aside class="sidebar d-flex flex-column p-4" style="background-color: #F5E7C6;">
+    <aside class="sidebar d-flex flex-column p-4">
         <div class="sidebar-brand mb-5 text-center">
             <img src="../img/radog_logo.png" alt="Radog Logo" class="img-fluid mb-3" style="max-height: 90px; width: auto;">
             <div>
@@ -80,7 +99,7 @@ try {
             <a href="owner.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-people me-3"></i> Owners</a>
             <a href="pets.php" class="nav-link d-flex align-items-center mb-2 active" style="background-color: #FA8112; color: white;"><i class="bi bi-paw me-3"></i> Pets</a>
             <a href="checkout.php" class="nav-link d-flex align-items-center mb-2" ><i class="bi bi-cash-stack me-3"></i> Checkout/Payments</a>
-               <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin' && $_SESSION['is_logged_in'] === true): ?>
+               <?php if (isAdmin()): ?>
     <a href="user_management.php" class="nav-link d-flex align-items-center mb-2">
         <i class="bi bi-gear-fill me-3"></i> User Management
     </a>
@@ -134,9 +153,25 @@ try {
                             <td class="px-4 py-3 align-middle"><?php echo htmlspecialchars($row['CATEGORY_NAME']); ?></td>
                             <td class="px-4 py-3 align-middle"><?php echo htmlspecialchars($row['FIRST_NAME'] . " " . $row['LAST_NAME']); ?></td>
                             <td class="px-4 py-3 align-middle text-center">
-                                <a href="pet_profile.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-outline-brand">
+                                <a href="pet_profile.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-outline-brand me-1 mb-1">
                                     <i class="bi bi-eye"></i> Details
                                 </a>
+
+                                <?php if (isAdmin()): ?>
+                                    <a href="pet_delete.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-danger me-1 mb-1" onclick="return confirm('Delete this pet profile?');">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </a>
+                                    <a href="pet_export.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-outline-secondary mb-1">
+                                        <i class="bi bi-download"></i> Export
+                                    </a>
+                                <?php else: ?>
+                                    <a href="pet_edit.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-outline-brand me-1 mb-1">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </a>
+                                    <a href="pet_log_vaccine.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-outline-secondary mb-1">
+                                        <i class="bi bi-journal-medical"></i> Log Vaccine
+                                    </a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endwhile; ?>

@@ -89,7 +89,7 @@ if (!$booking) {
         <div class="alert alert-success small py-2"><?php echo htmlspecialchars($message); ?></div>
     <?php endif; ?>
 
-    <form action="booking_verification.php?booking_id=<?php echo $booking_id; ?>" method="POST">
+    <form action="booking_verification.php?xabooking_id=<?php echo $booking_id; ?>" method="POST">
         <input type="hidden" name="booking_id" value="<?php echo $booking_id; ?>">
         <div class="row g-4">
             <div class="col-md-6">
