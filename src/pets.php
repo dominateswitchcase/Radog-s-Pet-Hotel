@@ -491,7 +491,7 @@ try {
 
     <!-- Brand -->
     <div class="sidebar-brand">
-        <img src="../img/radog_logo.png" alt="Radog Logo">
+        <img src="../img/radog_logocutie.png" alt="Radog Logo">
         <div class="brand-text">
             <span class="brand-name">Radog's</span>
             <span class="brand-sub">Kennel Pet Hotel</span>
