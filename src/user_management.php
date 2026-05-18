@@ -592,10 +592,10 @@ function badgeFree() {
                 $nav = [
                     ['href' => 'admin_dashboard.php', 'label' => 'Dashboard', 'icon' => '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-18v7h6V2h-6z"/></svg>'],
                     ['href' => 'encode_reservation.php', 'label' => 'Schedule', 'icon' => '<svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11zm0-13H5V6h14v1z"/></svg>'],
-                    ['href' => 'calendar.php', 'label' => 'Calendar', 'icon' => '<svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4H5V6h14v2zm0 12H5V10h14v10z"/></svg>'],
+                    ['href' => 'calendar-unified.php', 'label' => 'Calendar', 'icon' => '<svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4H5V6h14v2zm0 12H5V10h14v10z"/></svg>'],
                     ['href' => 'owner.php', 'label' => 'Owners', 'icon' => '<svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>'],
                     ['href' => 'pets.php', 'label' => 'Pets', 'icon' => '<svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>'],
-                    ['href' => 'checkout.php', 'label' => 'Checkout / Payments', 'icon' => '<svg viewBox="0 0 24 24"><path d="M20 6H4a2 2 0 0 0-2 2v2h20V8a2 2 0 0 0-2-2zm0 6H2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6zm-3 5H7v-2h10v2z"/></svg>'],
+                    // ['href' => 'checkout.php', 'label' => 'Checkout / Payments', 'icon' => '<svg viewBox="0 0 24 24"><path d="M20 6H4a2 2 0 0 0-2 2v2h20V8a2 2 0 0 0-2-2zm0 6H2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6zm-3 5H7v-2h10v2z"/></svg>'],
                     ['href' => 'user_management.php', 'label' => 'User Management', 'icon' => '<svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>', 'active' => true],
                     ['href' => '../logout.php', 'label' => 'Logout', 'icon' => '<svg viewBox="0 0 24 24"><path d="M16 13v-2H7V8l-5 4 5 4v-3h9zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>'],
                 ];

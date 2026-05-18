@@ -623,7 +623,7 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <!-- Brand -->
     <div class="sidebar-brand">
         <div class="sidebar-logo">
-            <img src="../img/radog_logo.png" alt="Radog's Kennel">
+            <img src="../img/radog_logocutie.png" alt="Radog's Kennel">
         </div>
         <div>
             <div class="sidebar-wordmark-top">Radog's Kennel</div>
@@ -662,7 +662,7 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </a>
         </li>
         <li>
-            <a href="calendar.php" class="nav-link">
+            <a href="calendar-unified.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Calendar
             </a>
@@ -679,12 +679,12 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 Pets
             </a>
         </li>
-        <li>
+        <!-- <li>
             <a href="checkout.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                 Checkout / Payments
             </a>
-        </li>
+        </li> -->
         <?php if (isAdmin()): ?>
         <li>
             <a href="user_management.php" class="nav-link">

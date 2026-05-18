@@ -1,3 +1,4 @@
+<!-- being use by schedule page -->
 <?php
 session_start();
 require_once '../config/db.php';
@@ -574,7 +575,7 @@ $all_accommodations = $acc_stmt->fetchAll(PDO::FETCH_ASSOC);
     <aside class="sidebar">
         <div class="sidebar-brand">
             <div class="sidebar-logo">
-                <img src="../img/radog_logo.png" alt="Radog's Kennel">
+                <img src="../img/radog_logocutie.png" alt="Radog's Kennel">
             </div>
             <div>
                 <div class="sidebar-wordmark-top">Radog's Kennel</div>
@@ -612,7 +613,7 @@ $all_accommodations = $acc_stmt->fetchAll(PDO::FETCH_ASSOC);
                 Schedule
             </a>
 
-            <a href="calendar.php" class="nav-link">
+            <a href="calendar-unified.php" class="nav-link">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Calendar
             </a>
@@ -627,10 +628,10 @@ $all_accommodations = $acc_stmt->fetchAll(PDO::FETCH_ASSOC);
                 Pets
             </a>
 
-            <a href="checkout.php" class="nav-link">
+            <!-- <a href="checkout.php" class="nav-link">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
                 Checkout / Payments
-            </a>
+            </a> -->
 
             <?php if (isAdmin()): ?>
                 <a href="user_management.php" class="nav-link">
