@@ -42,68 +42,57 @@ function getNextId(PDO $pdo, $table, $column) {
 }
 
 $supportsStatus = [
-    'TIER' => columnExists($pdo, 'TIER', 'STATUS'),
+    'TIER'         => columnExists($pdo, 'TIER', 'STATUS'),
     'PET_CATEGORY' => columnExists($pdo, 'PET_CATEGORY', 'STATUS'),
-    'SERVICE' => columnExists($pdo, 'SERVICE', 'STATUS'),
+    'SERVICE'      => columnExists($pdo, 'SERVICE', 'STATUS'),
 ];
 
-$allowedTabs = ['accommodation', 'tier', 'pet_category', 'service'];
-$activeTab = isset($_GET['tab']) && in_array($_GET['tab'], $allowedTabs, true) ? $_GET['tab'] : 'accommodation';
-$success = isset($_GET['success']) && $_GET['success'] === '1';
-$formErrors = [
+$allowedTabs = ['accommodation', 'tier', 'pet_category', 'service', 'account'];
+$activeTab   = isset($_GET['tab']) && in_array($_GET['tab'], $allowedTabs, true) ? $_GET['tab'] : 'accommodation';
+$success     = isset($_GET['success']) && $_GET['success'] === '1';
+$formErrors  = [
     'accommodation' => '',
-    'tier' => '',
-    'pet_category' => '',
-    'service' => '',
-    'account' => '',
-    'password' => '',
+    'tier'          => '',
+    'pet_category'  => '',
+    'service'       => '',
+    'account'       => '',
+    'password'      => '',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $requestedTab = $_POST['tab'] ?? $activeTab;
-    $redirectTab = in_array($requestedTab, $allowedTabs, true) ? $requestedTab : 'accommodation';
-    $action = trim($_POST['action']);
+    $redirectTab  = in_array($requestedTab, $allowedTabs, true) ? $requestedTab : 'accommodation';
+    $action       = trim($_POST['action']);
 
     try {
         if ($action === 'add_accommodation') {
             $accommodationType = trim($_POST['accommodation_type'] ?? '');
-            $tierId = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
-            $unitName = trim($_POST['unit_name'] ?? '');
+            $tierId            = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
+            $unitName          = trim($_POST['unit_name'] ?? '');
             if ($accommodationType === '' || !$tierId || $unitName === '') {
                 $formErrors['accommodation'] = 'Please provide an accommodation type and select a tier.';
             } else {
-                $newId = getNextId($pdo, 'ACCOMMODATION', 'ACCOMMODATION_ID');
+                $newId  = getNextId($pdo, 'ACCOMMODATION', 'ACCOMMODATION_ID');
                 $insert = $pdo->prepare(
                     'INSERT INTO ACCOMMODATION (ACCOMMODATION_ID, UNIT_NAME, ACCOMMODATION_TYPE, OCCUPANCY_STATUS, TIER_ID) VALUES (:id, :unit, :type, :status, :tier)'
                 );
-                $insert->execute([
-                    'id' => $newId,
-                    'unit' => $unitName,
-                    'type' => $accommodationType,
-                    'status' => 'Available',
-                    'tier' => $tierId,
-                ]);
+                $insert->execute(['id' => $newId, 'unit' => $unitName, 'type' => $accommodationType, 'status' => 'Available', 'tier' => $tierId]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
         } elseif ($action === 'edit_accommodation') {
-            $accId = filter_var($_POST['accommodation_id'] ?? '', FILTER_VALIDATE_INT);
+            $accId             = filter_var($_POST['accommodation_id'] ?? '', FILTER_VALIDATE_INT);
             $accommodationType = trim($_POST['accommodation_type'] ?? '');
-            $tierId = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
-            $occupancyStatus = trim($_POST['occupancy_status'] ?? '');
-            $allowedStatus = ['Available', 'Booked', 'Under Maintenance'];
+            $tierId            = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
+            $occupancyStatus   = trim($_POST['occupancy_status'] ?? '');
+            $allowedStatus     = ['Available', 'Booked', 'Under Maintenance'];
             if (!$accId || $accommodationType === '' || !$tierId || !in_array($occupancyStatus, $allowedStatus, true)) {
                 $formErrors['accommodation'] = 'Please complete the accommodation update form correctly.';
             } else {
                 $update = $pdo->prepare(
                     'UPDATE ACCOMMODATION SET ACCOMMODATION_TYPE = :type, TIER_ID = :tier, OCCUPANCY_STATUS = :status WHERE ACCOMMODATION_ID = :id'
                 );
-                $update->execute([
-                    'type' => $accommodationType,
-                    'tier' => $tierId,
-                    'status' => $occupancyStatus,
-                    'id' => $accId,
-                ]);
+                $update->execute(['type' => $accommodationType, 'tier' => $tierId, 'status' => $occupancyStatus, 'id' => $accId]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
@@ -118,60 +107,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             }
         } elseif ($action === 'add_tier') {
-            $tierName = trim($_POST['tier_name'] ?? '');
+            $tierName    = trim($_POST['tier_name'] ?? '');
             $description = trim($_POST['tier_description'] ?? '');
-            $weightMin = filter_var($_POST['weight_min'] ?? '', FILTER_VALIDATE_FLOAT);
-            $weightMax = filter_var($_POST['weight_max'] ?? '', FILTER_VALIDATE_FLOAT);
-            $dailyRate = filter_var($_POST['daily_rate'] ?? '', FILTER_VALIDATE_FLOAT);
+            $weightMin   = filter_var($_POST['weight_min'] ?? '', FILTER_VALIDATE_FLOAT);
+            $weightMax   = filter_var($_POST['weight_max'] ?? '', FILTER_VALIDATE_FLOAT);
+            $dailyRate   = filter_var($_POST['daily_rate'] ?? '', FILTER_VALIDATE_FLOAT);
             if ($tierName === '' || $weightMin === false || $weightMax === false || $dailyRate === false || $weightMax <= $weightMin) {
                 $formErrors['tier'] = 'Please complete the tier form and ensure Weight Max is greater than Weight Min.';
             } else {
                 $newId = getNextId($pdo, 'TIER', 'TIER_ID');
                 if ($supportsStatus['TIER']) {
-                    $insert = $pdo->prepare(
-                        "INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS) VALUES (:id, :name, :desc, :min, :max, :rate, 'Active')"
-                    );
+                    $insert = $pdo->prepare("INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS) VALUES (:id, :name, :desc, :min, :max, :rate, 'Active')");
                 } else {
-                    $insert = $pdo->prepare(
-                        'INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE) VALUES (:id, :name, :desc, :min, :max, :rate)'
-                    );
+                    $insert = $pdo->prepare('INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE) VALUES (:id, :name, :desc, :min, :max, :rate)');
                 }
-                $insert->execute([
-                    'id' => $newId,
-                    'name' => $tierName,
-                    'desc' => $description,
-                    'min' => $weightMin,
-                    'max' => $weightMax,
-                    'rate' => $dailyRate,
-                ]);
+                $insert->execute(['id' => $newId, 'name' => $tierName, 'desc' => $description, 'min' => $weightMin, 'max' => $weightMax, 'rate' => $dailyRate]);
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
             }
         } elseif ($action === 'edit_tier') {
-            $tierId = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
-            $tierName = trim($_POST['tier_name'] ?? '');
-            $description = trim($_POST['tier_description'] ?? '');
-            $weightMin = filter_var($_POST['weight_min'] ?? '', FILTER_VALIDATE_FLOAT);
-            $weightMax = filter_var($_POST['weight_max'] ?? '', FILTER_VALIDATE_FLOAT);
-            $dailyRate = filter_var($_POST['daily_rate'] ?? '', FILTER_VALIDATE_FLOAT);
+            $tierId       = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
+            $tierName     = trim($_POST['tier_name'] ?? '');
+            $description  = trim($_POST['tier_description'] ?? '');
+            $weightMin    = filter_var($_POST['weight_min'] ?? '', FILTER_VALIDATE_FLOAT);
+            $weightMax    = filter_var($_POST['weight_max'] ?? '', FILTER_VALIDATE_FLOAT);
+            $dailyRate    = filter_var($_POST['daily_rate'] ?? '', FILTER_VALIDATE_FLOAT);
             $recordStatus = trim($_POST['status'] ?? 'Active');
             if (!$tierId || $tierName === '' || $weightMin === false || $weightMax === false || $dailyRate === false || $weightMax <= $weightMin) {
                 $formErrors['tier'] = 'Please complete the tier update form and ensure the weight range is valid.';
             } else {
                 $setFields = 'TIER_NAME = :name, TIER_DESCRIPTION = :desc, WEIGHT_MIN = :min, WEIGHT_MAX = :max, DAILY_RATE = :rate';
-                if ($supportsStatus['TIER']) {
-                    $setFields .= ', STATUS = :status';
-                }
-                $sql = "UPDATE TIER SET $setFields WHERE TIER_ID = :id";
+                if ($supportsStatus['TIER']) { $setFields .= ', STATUS = :status'; }
+                $sql    = "UPDATE TIER SET $setFields WHERE TIER_ID = :id";
                 $update = $pdo->prepare($sql);
-                $params = [
-                    'name' => $tierName,
-                    'desc' => $description,
-                    'min' => $weightMin,
-                    'max' => $weightMax,
-                    'rate' => $dailyRate,
-                    'id' => $tierId,
-                ];
+                $params = ['name' => $tierName, 'desc' => $description, 'min' => $weightMin, 'max' => $weightMax, 'rate' => $dailyRate, 'id' => $tierId];
                 if ($supportsStatus['TIER']) {
                     $params['status'] = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
                 }
@@ -180,13 +149,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             }
         } elseif ($action === 'deactivate_tier') {
-            $tierId = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
+            $tierId    = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
             $newStatus = trim($_POST['status'] ?? 'Inactive');
             if (!$tierId || !$supportsStatus['TIER']) {
                 $formErrors['tier'] = 'Unable to update tier status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update = $pdo->prepare('UPDATE TIER SET STATUS = :status WHERE TIER_ID = :id');
+                $update      = $pdo->prepare('UPDATE TIER SET STATUS = :status WHERE TIER_ID = :id');
                 $update->execute(['status' => $statusValue, 'id' => $tierId]);
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
@@ -199,20 +168,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 $newId = getNextId($pdo, 'PET_CATEGORY', 'CATEGORY_ID');
                 if ($supportsStatus['PET_CATEGORY']) {
-                    $insert = $pdo->prepare(
-                        "INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS) VALUES (:id, :name, :notes, 'Active')"
-                    );
+                    $insert = $pdo->prepare("INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS) VALUES (:id, :name, :notes, 'Active')");
                 } else {
-                    $insert = $pdo->prepare(
-                        'INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES) VALUES (:id, :name, :notes)'
-                    );
+                    $insert = $pdo->prepare('INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES) VALUES (:id, :name, :notes)');
                 }
                 $insert->execute(['id' => $newId, 'name' => $categoryName, 'notes' => $speciesNotes]);
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
             }
         } elseif ($action === 'edit_pet_category') {
-            $categoryId = filter_var($_POST['category_id'] ?? '', FILTER_VALIDATE_INT);
+            $categoryId   = filter_var($_POST['category_id'] ?? '', FILTER_VALIDATE_INT);
             $categoryName = trim($_POST['category_name'] ?? '');
             $speciesNotes = trim($_POST['species_notes'] ?? '');
             $recordStatus = trim($_POST['status'] ?? 'Active');
@@ -220,10 +185,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['pet_category'] = 'Please complete the category update form.';
             } else {
                 $fields = 'CATEGORY_NAME = :name, SPECIES_NOTES = :notes';
-                if ($supportsStatus['PET_CATEGORY']) {
-                    $fields .= ', STATUS = :status';
-                }
-                $sql = "UPDATE PET_CATEGORY SET $fields WHERE CATEGORY_ID = :id";
+                if ($supportsStatus['PET_CATEGORY']) { $fields .= ', STATUS = :status'; }
+                $sql    = "UPDATE PET_CATEGORY SET $fields WHERE CATEGORY_ID = :id";
                 $update = $pdo->prepare($sql);
                 $params = ['name' => $categoryName, 'notes' => $speciesNotes, 'id' => $categoryId];
                 if ($supportsStatus['PET_CATEGORY']) {
@@ -235,51 +198,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         } elseif ($action === 'deactivate_pet_category') {
             $categoryId = filter_var($_POST['category_id'] ?? '', FILTER_VALIDATE_INT);
-            $newStatus = trim($_POST['status'] ?? 'Inactive');
+            $newStatus  = trim($_POST['status'] ?? 'Inactive');
             if (!$categoryId || !$supportsStatus['PET_CATEGORY']) {
                 $formErrors['pet_category'] = 'Unable to update category status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update = $pdo->prepare('UPDATE PET_CATEGORY SET STATUS = :status WHERE CATEGORY_ID = :id');
+                $update      = $pdo->prepare('UPDATE PET_CATEGORY SET STATUS = :status WHERE CATEGORY_ID = :id');
                 $update->execute(['status' => $statusValue, 'id' => $categoryId]);
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
             }
         } elseif ($action === 'add_service') {
-            $serviceName = trim($_POST['service_name'] ?? '');
+            $serviceName        = trim($_POST['service_name'] ?? '');
             $serviceDescription = trim($_POST['service_description'] ?? '');
-            $price = filter_var($_POST['price'] ?? '', FILTER_VALIDATE_FLOAT);
+            $price              = filter_var($_POST['price'] ?? '', FILTER_VALIDATE_FLOAT);
             if ($serviceName === '' || $price === false || $price < 0) {
                 $formErrors['service'] = 'Please complete the service form and provide a valid price.';
             } else {
                 $newId = getNextId($pdo, 'SERVICE', 'SERVICE_ID');
                 if ($supportsStatus['SERVICE']) {
-                    $insert = $pdo->prepare(
-                        "INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS) VALUES (:id, :name, :desc, :price, 'Active')"
-                    );
+                    $insert = $pdo->prepare("INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS) VALUES (:id, :name, :desc, :price, 'Active')");
                 } else {
-                    $insert = $pdo->prepare(
-                        'INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE) VALUES (:id, :name, :desc, :price)'
-                    );
+                    $insert = $pdo->prepare('INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE) VALUES (:id, :name, :desc, :price)');
                 }
                 $insert->execute(['id' => $newId, 'name' => $serviceName, 'desc' => $serviceDescription, 'price' => $price]);
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
         } elseif ($action === 'edit_service') {
-            $serviceId = filter_var($_POST['service_id'] ?? '', FILTER_VALIDATE_INT);
-            $serviceName = trim($_POST['service_name'] ?? '');
+            $serviceId          = filter_var($_POST['service_id'] ?? '', FILTER_VALIDATE_INT);
+            $serviceName        = trim($_POST['service_name'] ?? '');
             $serviceDescription = trim($_POST['service_description'] ?? '');
-            $price = filter_var($_POST['price'] ?? '', FILTER_VALIDATE_FLOAT);
-            $recordStatus = trim($_POST['status'] ?? 'Active');
+            $price              = filter_var($_POST['price'] ?? '', FILTER_VALIDATE_FLOAT);
+            $recordStatus       = trim($_POST['status'] ?? 'Active');
             if (!$serviceId || $serviceName === '' || $price === false || $price < 0) {
                 $formErrors['service'] = 'Please complete the service update form and provide a valid price.';
             } else {
                 $fields = 'SERVICE_NAME = :name, SERVICE_DESCRIPTION = :desc, PRICE = :price';
-                if ($supportsStatus['SERVICE']) {
-                    $fields .= ', STATUS = :status';
-                }
-                $sql = "UPDATE SERVICE SET $fields WHERE SERVICE_ID = :id";
+                if ($supportsStatus['SERVICE']) { $fields .= ', STATUS = :status'; }
+                $sql    = "UPDATE SERVICE SET $fields WHERE SERVICE_ID = :id";
                 $update = $pdo->prepare($sql);
                 $params = ['name' => $serviceName, 'desc' => $serviceDescription, 'price' => $price, 'id' => $serviceId];
                 if ($supportsStatus['SERVICE']) {
@@ -296,56 +253,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['service'] = 'Unable to update service status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update = $pdo->prepare('UPDATE SERVICE SET STATUS = :status WHERE SERVICE_ID = :id');
+                $update      = $pdo->prepare('UPDATE SERVICE SET STATUS = :status WHERE SERVICE_ID = :id');
                 $update->execute(['status' => $statusValue, 'id' => $serviceId]);
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
         } elseif ($action === 'update_username') {
-            $username = trim($_POST['username'] ?? '');
+            $username  = trim($_POST['username'] ?? '');
             $accountId = $_SESSION['account_id'];
             if ($username === '') {
                 $formErrors['account'] = 'Username cannot be blank.';
-                $redirectTab = $requestedTab;
+                $redirectTab = 'account';
             } else {
                 $stmt = $pdo->prepare('SELECT COUNT(*) FROM USER_ACCOUNT WHERE USERNAME = :username AND ACCOUNT_ID <> :id');
                 $stmt->execute(['username' => $username, 'id' => $accountId]);
                 if ((int) $stmt->fetchColumn() > 0) {
                     $formErrors['account'] = 'That username is already taken.';
-                    $redirectTab = $requestedTab;
+                    $redirectTab = 'account';
                 } else {
                     $update = $pdo->prepare('UPDATE USER_ACCOUNT SET USERNAME = :username WHERE ACCOUNT_ID = :id');
                     $update->execute(['username' => $username, 'id' => $accountId]);
-                    header('Location: user_management.php?tab=' . $requestedTab . '&success=1');
+                    header('Location: user_management.php?tab=account&success=1');
                     exit();
                 }
             }
         } elseif ($action === 'change_password') {
-            $current = $_POST['current_password'] ?? '';
-            $newPass = $_POST['new_password'] ?? '';
+            $current     = $_POST['current_password'] ?? '';
+            $newPass     = $_POST['new_password'] ?? '';
             $confirmPass = $_POST['confirm_password'] ?? '';
-            $accountId = $_SESSION['account_id'];
+            $accountId   = $_SESSION['account_id'];
             if ($current === '' || $newPass === '' || $confirmPass === '') {
                 $formErrors['password'] = 'Please complete all password fields.';
-                $redirectTab = $requestedTab;
+                $redirectTab = 'account';
             } elseif ($newPass !== $confirmPass) {
                 $formErrors['password'] = 'New password and confirm password must match.';
-                $redirectTab = $requestedTab;
+                $redirectTab = 'account';
             } elseif (strlen($newPass) < 8) {
                 $formErrors['password'] = 'New password must be at least 8 characters.';
-                $redirectTab = $requestedTab;
+                $redirectTab = 'account';
             } else {
                 $stmt = $pdo->prepare('SELECT PASSWORD_HASH FROM USER_ACCOUNT WHERE ACCOUNT_ID = :id');
                 $stmt->execute(['id' => $accountId]);
                 $hash = $stmt->fetchColumn();
                 if (!$hash || !password_verify($current, $hash)) {
                     $formErrors['password'] = 'Current password is incorrect.';
-                    $redirectTab = $requestedTab;
+                    $redirectTab = 'account';
                 } else {
                     $newHash = password_hash($newPass, PASSWORD_BCRYPT);
-                    $update = $pdo->prepare('UPDATE USER_ACCOUNT SET PASSWORD_HASH = :hash WHERE ACCOUNT_ID = :id');
+                    $update  = $pdo->prepare('UPDATE USER_ACCOUNT SET PASSWORD_HASH = :hash WHERE ACCOUNT_ID = :id');
                     $update->execute(['hash' => $newHash, 'id' => $accountId]);
-                    header('Location: user_management.php?tab=' . $requestedTab . '&success=1');
+                    header('Location: user_management.php?tab=account&success=1');
                     exit();
                 }
             }
@@ -369,25 +326,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $activeTab = $redirectTab;
 }
 
-$statusFilter = $supportsStatus['TIER'] ? "WHERE STATUS = 'Active'" : '';
-$inactiveTierFilter = $supportsStatus['TIER'] ? "WHERE STATUS = 'Inactive'" : '';
-$activeCategoryFilter = $supportsStatus['PET_CATEGORY'] ? "WHERE STATUS = 'Active'" : '';
+$statusFilter           = $supportsStatus['TIER']         ? "WHERE STATUS = 'Active'" : '';
+$inactiveTierFilter     = $supportsStatus['TIER']         ? "WHERE STATUS = 'Inactive'" : '';
+$activeCategoryFilter   = $supportsStatus['PET_CATEGORY'] ? "WHERE STATUS = 'Active'" : '';
 $inactiveCategoryFilter = $supportsStatus['PET_CATEGORY'] ? "WHERE STATUS = 'Inactive'" : '';
-$activeServiceFilter = $supportsStatus['SERVICE'] ? "WHERE STATUS = 'Active'" : '';
-$inactiveServiceFilter = $supportsStatus['SERVICE'] ? "WHERE STATUS = 'Inactive'" : '';
+$activeServiceFilter    = $supportsStatus['SERVICE']      ? "WHERE STATUS = 'Active'" : '';
+$inactiveServiceFilter  = $supportsStatus['SERVICE']      ? "WHERE STATUS = 'Inactive'" : '';
 
-$activeTiers = $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE " . ($supportsStatus['TIER'] ? ', STATUS' : '') . " FROM TIER $statusFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC);
-$allTiers = $pdo->query('SELECT TIER_ID, TIER_NAME FROM TIER ORDER BY TIER_ID')->fetchAll(PDO::FETCH_ASSOC);
-$inactiveTiers = $supportsStatus['TIER'] ? $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS FROM TIER $inactiveTierFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
-$activeCategories = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES " . ($supportsStatus['PET_CATEGORY'] ? ', STATUS' : '') . " FROM PET_CATEGORY $activeCategoryFilter ORDER BY CATEGORY_ID")->fetchAll(PDO::FETCH_ASSOC);
+$activeTiers       = $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE " . ($supportsStatus['TIER'] ? ', STATUS' : '') . " FROM TIER $statusFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC);
+$allTiers          = $pdo->query('SELECT TIER_ID, TIER_NAME FROM TIER ORDER BY TIER_ID')->fetchAll(PDO::FETCH_ASSOC);
+$inactiveTiers     = $supportsStatus['TIER'] ? $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS FROM TIER $inactiveTierFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
+$activeCategories  = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES " . ($supportsStatus['PET_CATEGORY'] ? ', STATUS' : '') . " FROM PET_CATEGORY $activeCategoryFilter ORDER BY CATEGORY_ID")->fetchAll(PDO::FETCH_ASSOC);
 $inactiveCategories = $supportsStatus['PET_CATEGORY'] ? $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS FROM PET_CATEGORY $inactiveCategoryFilter ORDER BY CATEGORY_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
-$activeServices = $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE " . ($supportsStatus['SERVICE'] ? ', STATUS' : '') . " FROM SERVICE $activeServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC);
-$inactiveServices = $supportsStatus['SERVICE'] ? $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS FROM SERVICE $inactiveServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
-$accommodations = $pdo->query(
+$activeServices    = $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE " . ($supportsStatus['SERVICE'] ? ', STATUS' : '') . " FROM SERVICE $activeServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC);
+$inactiveServices  = $supportsStatus['SERVICE'] ? $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS FROM SERVICE $inactiveServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
+$accommodations    = $pdo->query(
     'SELECT A.ACCOMMODATION_ID, A.UNIT_NAME, A.ACCOMMODATION_TYPE, A.OCCUPANCY_STATUS, A.TIER_ID, T.TIER_NAME FROM ACCOMMODATION A JOIN TIER T ON A.TIER_ID = T.TIER_ID ORDER BY A.ACCOMMODATION_ID'
 )->fetchAll(PDO::FETCH_ASSOC);
 
-$countsStmt = $pdo->query('SELECT TIER_ID, COUNT(*) AS CNT FROM ACCOMMODATION GROUP BY TIER_ID');
+$countsStmt        = $pdo->query('SELECT TIER_ID, COUNT(*) AS CNT FROM ACCOMMODATION GROUP BY TIER_ID');
 $accommodationCounts = [];
 while ($row = $countsStmt->fetch(PDO::FETCH_ASSOC)) {
     $accommodationCounts[$row['TIER_ID']] = (int) $row['CNT'];
@@ -399,18 +356,10 @@ $currentUserStmt = $pdo->prepare(
 $currentUserStmt->execute(['id' => $_SESSION['account_id']]);
 $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', 'ACCOUNT_STATUS' => '', 'EMPLOYEE_USERNAME' => '', 'GROUP_NAME' => ''];
 
-function renderStatusBadge($status) {
-    $styles = [
-        'Available' => 'badge-available',
-        'Booked' => 'badge-booked',
-        'Under Maintenance' => 'badge-maintenance',
-    ];
-    $class = $styles[$status] ?? 'badge-muted';
-    return '<span class="status-pill ' . $class . '">' . escape($status) . '</span>';
-}
-
-function badgeFree() {
-    return '<span class="status-pill badge-free">FREE</span>';
+// Build tier options HTML for modal JS injection
+$tierOptionsHtml = '';
+foreach ($activeTiers as $tier) {
+    $tierOptionsHtml .= '<option value="' . escape($tier['TIER_ID']) . '" data-tier-name="' . escape($tier['TIER_NAME']) . '">' . escape($tier['TIER_NAME']) . '</option>';
 }
 ?>
 <!DOCTYPE html>
@@ -421,266 +370,703 @@ function badgeFree() {
     <title>User Management – Radog's Kennel Pet Hotel</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
         :root {
-            --orange: #FA8112;
-            --orange-dk: #d96a08;
-            --black: #222222;
-            --beige: #FAF3E1;
-            --gold: #F5E7C6;
-            --white: #ffffff;
-            --radius-card: 20px;
+            --orange:       #FA8112;
+            --orange-dk:    #d96a08;
+            --black:        #222222;
+            --beige:        #FAF3E1;
+            --gold:         #F5E7C6;
+            --white:        #ffffff;
+            --radius-card:  20px;
             --radius-input: 12px;
-            --radius-btn: 12px;
-            --shadow-card: 0 24px 70px rgba(15,23,42,0.08);
-            --border-soft: 1.5px solid #e2d9ce;
+            --radius-btn:   12px;
+            --shadow-card:  0 24px 70px rgba(15, 23, 42, 0.08);
+            --border-soft:  1px solid rgba(34, 34, 34, 0.08);
         }
+
         html, body { min-height: 100%; }
         body {
             font-family: 'DM Sans', sans-serif;
             background: var(--beige);
             color: var(--black);
-            display: flex;
             min-height: 100vh;
-        }
-        h1, h2, h3, h4, h5, button, .eyebrow { font-family: 'Bebas Neue', sans-serif; }
-        a { text-decoration: none; }
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
-        .page-shell {
             display: flex;
-            width: 100%;
-            max-width: 1600px;
-            margin: 0 auto;
-            padding: 28px;
-            gap: 28px;
         }
+        h1, h2, h3, h4, h5 {
+            font-family: 'Bebas Neue', sans-serif;
+            letter-spacing: 0.05em;
+        }
+        a { text-decoration: none; }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── SIDEBAR ─────────────────────────────────────── */
         .sidebar {
-            width: 280px;
+            width: 272px;
             flex-shrink: 0;
             background-color: var(--black);
-            background-image: repeating-linear-gradient(-55deg, transparent 0 18px, rgba(250,129,18,0.04) 18px 19px);
-            border-radius: var(--radius-card);
-            padding: 28px 22px;
+            background-image: repeating-linear-gradient(
+                -55deg, transparent, transparent 18px,
+                rgba(250,129,18,0.04) 18px, rgba(250,129,18,0.04) 19px
+            );
             display: flex;
             flex-direction: column;
-            gap: 28px;
-            animation: fadeUp 0.9s ease both;
+            padding: 28px 20px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) both;
         }
-        .sidebar-brand { display: flex; align-items: center; gap: 14px; }
+
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid rgba(250,129,18,0.15);
+            margin-bottom: 24px;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.05s both;
+        }
         .sidebar-logo {
             width: 52px;
             height: 52px;
-            border-radius: 16px;
-            background: linear-gradient(135deg, var(--orange), var(--gold));
+            border-radius: 14px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .sidebar-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: drop-shadow(0 0 12px rgba(250,129,18,0.5));
+        }
+        .sidebar-logo-placeholder {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--orange), #f5b44a);
             display: grid;
             place-items: center;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.4rem;
             color: var(--white);
+            letter-spacing: 0.1em;
+            flex-shrink: 0;
+        }
+        .sidebar-wordmark-top {
+            font-family: 'Bebas Neue', sans-serif;
             font-size: 1.5rem;
+            color: var(--orange);
+            text-shadow: 0 0 20px rgba(250,129,18,0.4);
+            line-height: 1;
+        }
+        .sidebar-wordmark-sub {
+            font-size: 0.68rem;
             letter-spacing: 0.18em;
             text-transform: uppercase;
-            box-shadow: 0 14px 30px rgba(250,129,18,0.25);
+            color: var(--gold);
+            opacity: 0.8;
+            margin-top: 3px;
         }
-        .sidebar-wordmark-top { color: var(--orange); font-size: 1.45rem; line-height: 1; }
-        .sidebar-wordmark-sub { font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); }
+
         .sidebar-user {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: var(--radius-card);
-            padding: 18px;
-            display: grid;
-            gap: 10px;
-            animation: fadeUp 0.9s ease both 0.1s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(250,129,18,0.1);
+            border: 1px solid rgba(250,129,18,0.18);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 28px;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both;
         }
-        .user-title { font-size: 0.82rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); }
-        .user-name { font-size: 1.1rem; color: var(--white); }
-        .user-role { font-size: 0.92rem; color: rgba(255,255,255,0.72); }
-        .sidebar-nav { display: grid; gap: 10px; animation: fadeUp 0.9s ease both 0.2s; }
-        .nav-link { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; color: rgba(255,255,255,0.9); transition: background 0.25s ease, transform 0.2s ease; }
-        .nav-link:hover, .nav-link.active { background: rgba(250,129,18,0.14); transform: translateX(2px); }
-        .nav-link svg { width: 18px; height: 18px; fill: currentColor; }
-        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; animation: fadeUp 0.9s ease both 0.3s; }
-        .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
-        .page-copy { max-width: 680px; }
-        .eyebrow { display: inline-block; margin-bottom: 12px; color: var(--orange); font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase; }
-        .page-copy h1 { font-size: clamp(2.2rem, 2.25vw, 3rem); line-height: 1; margin-bottom: 14px; }
-        .page-copy p { font-size: 1rem; line-height: 1.75; color: #4f4f4f; }
-        .page-actions { display: flex; justify-content: flex-end; align-items: center; }
-        .btn { border: 0; border-radius: var(--radius-btn); font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; padding: 14px 22px; transition: background 0.25s ease, color 0.25s ease, transform 0.2s ease; }
+        .sidebar-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: var(--orange);
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1rem;
+            color: var(--white);
+            display: grid;
+            place-items: center;
+            flex-shrink: 0;
+        }
+        .sidebar-user-name {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--white);
+            line-height: 1.2;
+        }
+        .sidebar-user-role {
+            font-size: 0.72rem;
+            color: var(--orange);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        .nav-section-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: rgba(245,231,198,0.4);
+            padding: 0 4px;
+            margin-bottom: 8px;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.15s both;
+        }
+        .nav-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.2s both;
+        }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-radius: 12px;
+            color: rgba(245,231,198,0.7);
+            font-size: 0.92rem;
+            transition: background 0.18s, color 0.18s;
+        }
+        .nav-link svg { width: 17px; height: 17px; opacity: 0.8; flex-shrink: 0; }
+        .nav-link:hover { background: rgba(250,129,18,0.1); color: var(--white); }
+        .nav-link.active { background: var(--orange); color: var(--white); font-weight: 600; }
+        .nav-link.active svg { opacity: 1; }
+
+        .sidebar-spacer { flex: 1; }
+
+        .logout-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            background: transparent;
+            border: 1.5px solid rgba(245,231,198,0.15);
+            color: rgba(245,231,198,0.7);
+            font-size: 0.9rem;
+            transition: background 0.18s, color 0.18s, border-color 0.18s;
+            margin-top: 16px;
+        }
+        .logout-btn svg { width: 16px; height: 16px; }
+        .logout-btn:hover { background: rgba(250,129,18,0.12); border-color: var(--orange); color: var(--white); }
+
+        /* ── MAIN CONTENT ────────────────────────────────── */
+        .main-content {
+            flex-grow: 1;
+            padding: 40px 44px;
+            overflow-y: auto;
+            animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both;
+        }
+
+        .page-eyebrow {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--orange);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .page-eyebrow::before {
+            content: '';
+            display: block;
+            width: 20px;
+            height: 2px;
+            background: var(--orange);
+            border-radius: 99px;
+        }
+        .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
+        .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); margin-bottom: 28px; }
+
+        /* ── TAB BAR ─────────────────────────────────────── */
+        .tab-bar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            border-radius: 99px;
+            border: 1.5px solid rgba(34,34,34,0.14);
+            background: transparent;
+            color: var(--black);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.88rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.18s, color 0.18s, border-color 0.18s;
+        }
+        .tab-btn:hover   { background: rgba(250,129,18,0.08); border-color: var(--orange); }
+        .tab-btn.active  { background: var(--black); color: var(--white); border-color: transparent; }
+
+        /* ── PANEL / CARD ────────────────────────────────── */
+        .panel {
+            background: var(--white);
+            border: var(--border-soft);
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 20px;
+        }
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 18px;
+            border-bottom: 1px solid rgba(34,34,34,0.06);
+        }
+        .panel-header-left { display: flex; align-items: center; gap: 12px; }
+        .panel-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: rgba(250,129,18,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .panel-icon svg { width: 18px; height: 18px; color: var(--orange); fill: var(--orange); }
+        .panel-heading  { font-family: 'Bebas Neue', sans-serif; font-size: 1.35rem; color: var(--black); letter-spacing: 0.05em; }
+        .panel-subtext  { font-size: 0.8rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
+
+        /* ── BUTTONS ─────────────────────────────────────── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 20px;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 0.9rem;
+            letter-spacing: 0.12em;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn svg   { width: 15px; height: 15px; flex-shrink: 0; }
         .btn-primary { background: var(--black); color: var(--white); }
-        .btn-primary:hover { background: var(--orange); }
-        .btn-danger { background: var(--orange); color: var(--white); }
-        .btn-danger:hover { background: var(--orange-dk); }
-        .btn-ghost { background: transparent; border: 1px solid rgba(34,34,34,0.14); color: var(--black); }
-        .btn-ghost:hover { background: rgba(250,129,18,0.08); }
-        .btn-small { padding: 10px 16px; font-size: 0.85rem; }
-        .tab-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-        .tab-btn { border: 1px solid rgba(34,34,34,0.14); background: transparent; color: var(--black); padding: 12px 18px; border-radius: 999px; transition: background 0.25s ease, color 0.25s ease; }
-        .tab-btn.active { background: var(--black); color: var(--white); border-color: transparent; }
-        .tab-btn:hover { background: rgba(250,129,18,0.08); }
-        .panel { background: var(--white); border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding: 28px; display: grid; gap: 24px; }
-        .panel-row { display: grid; gap: 24px; }
-        .panel-row.two { grid-template-columns: 1fr 1fr; }
-        .field { display: grid; gap: 10px; }
-        label { display: block; font-weight: 600; font-size: 0.95rem; color: #2f2f2f; }
-        small { color: #6d6d6d; }
-        input, select, textarea { width: 100%; border: var(--border-soft); border-radius: var(--radius-input); background: var(--beige); padding: 14px 16px; color: var(--black); outline: none; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
-        input:focus, select:focus, textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 4px rgba(250,129,18,0.12); }
-        textarea { min-height: 120px; resize: vertical; }
-        .form-row { display: grid; gap: 18px; }
-        .form-row.split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .field-prefix { display: flex; align-items: center; gap: 8px; }
-        .field-prefix span { color: #4f4f4f; }
-        .alert { padding: 16px 18px; border-radius: 16px; background: #f4fbf6; border: 1px solid #d1efd7; color: #1f5b2f; }
-        .alert.error { background: #fff1f0; border-color: #f3c1c2; color: #991b1b; }
-        .records-table { width: 100%; border-collapse: collapse; }
-        .records-table thead { background: rgba(250,129,18,0.04); }
-        .records-table th, .records-table td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(34,34,34,0.08); }
-        .records-table th { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.72rem; color: #555; }
-        .records-table tbody tr:hover { background: rgba(250,129,18,0.03); }
-        .records-table td.actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; font-size: 0.88rem; font-weight: 700; }
-        .badge-available { background: rgba(34,197,94,0.12); color: #166534; }
-        .badge-booked { background: rgba(250,129,18,0.12); color: var(--orange-dk); }
+        .btn-primary:hover { background: var(--orange); box-shadow: 0 6px 20px rgba(250,129,18,0.3); }
+        .btn-danger  { background: var(--orange); color: var(--white); }
+        .btn-danger:hover  { background: var(--orange-dk); box-shadow: 0 6px 20px rgba(250,129,18,0.35); }
+        .btn-ghost   { background: transparent; color: var(--black); border: 1.5px solid rgba(34,34,34,0.18); }
+        .btn-ghost:hover { background: rgba(34,34,34,0.04); border-color: var(--orange); }
+        .btn-sm { padding: 8px 14px; font-size: 0.78rem; }
+
+        /* ── FORMS ───────────────────────────────────────── */
+        .field-label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #4a3f33;
+            margin-bottom: 8px;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 13px 16px;
+            border: 1.5px solid #e2d9ce;
+            border-radius: 12px;
+            background: var(--beige);
+            color: var(--black);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            appearance: none;
+        }
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--orange);
+            box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
+            outline: none;
+            background: var(--white);
+        }
+        input:disabled, select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: rgba(34,34,34,0.04);
+        }
+        input[readonly] { opacity: 0.65; cursor: default; }
+        textarea { resize: vertical; min-height: 90px; }
+        .form-grid { display: grid; gap: 18px; }
+        .form-grid-2 { grid-template-columns: 1fr 1fr; }
+        .field-prefix-wrap { display: flex; align-items: center; gap: 0; }
+        .field-prefix-wrap .prefix-symbol {
+            background: #e2d9ce;
+            border: 1.5px solid #e2d9ce;
+            border-right: none;
+            border-radius: 12px 0 0 12px;
+            padding: 13px 14px;
+            font-size: 0.95rem;
+            color: #6b5a48;
+            font-weight: 600;
+            line-height: 1;
+        }
+        .field-prefix-wrap input {
+            border-radius: 0 12px 12px 0;
+            border-left: none;
+        }
+        .field-prefix-wrap input:focus { border-color: var(--orange); }
+
+        /* ── ALERTS ──────────────────────────────────────── */
+        .alert {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+        .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+        .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+        .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+
+        /* ── DATA TABLE ──────────────────────────────────── */
+        .table-wrap { overflow-x: auto; }
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table thead tr { background: rgba(250,129,18,0.04); }
+        .data-table th {
+            padding: 12px 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(34,34,34,0.45);
+            text-align: left;
+            border-bottom: 1px solid rgba(34,34,34,0.06);
+            white-space: nowrap;
+        }
+        .data-table tbody tr { border-bottom: 1px solid rgba(34,34,34,0.05); transition: background 0.15s; }
+        .data-table tbody tr:last-child { border-bottom: none; }
+        .data-table tbody tr:hover { background: rgba(250,129,18,0.03); }
+        .data-table td { padding: 16px 20px; font-size: 0.92rem; vertical-align: middle; }
+        .td-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+        /* ── STATUS BADGES ───────────────────────────────── */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 99px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .badge-available   { background: rgba(34,197,94,0.12);  color: #166534; }
+        .badge-booked      { background: rgba(250,129,18,0.12); color: var(--orange-dk); }
         .badge-maintenance { background: rgba(148,163,184,0.15); color: #475569; }
-        .badge-free { background: rgba(34,197,94,0.12); color: #166534; }
-        .badge-muted { background: rgba(34,34,34,0.08); color: #2f2f2f; }
-        .modal-backdrop { position: fixed; inset: 0; background: rgba(17,24,39,0.55); backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 20; }
-        .modal-backdrop.open { display: flex; }
-        .modal { width: min(760px, 100%); background: #fff; border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow-card); }
-        .modal-header { padding: 22px 24px; background: linear-gradient(135deg, #111827, #1f2937); color: var(--white); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-        .modal-header h3 { margin: 0; font-size: 1.3rem; }
-        .modal-body { padding: 24px; display: grid; gap: 20px; }
-        .modal-close { background: transparent; border: 1px solid rgba(255,255,255,0.24); border-radius: 50%; width: 38px; height: 38px; color: var(--white); display: grid; place-items: center; }
-        .modal-close:hover { background: rgba(255,255,255,0.12); }
-        .modal-section { display: grid; gap: 16px; }
-        .modal-section h4 { margin-bottom: 8px; font-size: 1rem; }
-        .modal-details { display: grid; gap: 10px; }
-        .detail-row { display: grid; gap: 6px; }
-        .detail-row span { color: #4f4f4f; }
-        .inactive-toggle { display: inline-flex; align-items: center; gap: 10px; color: var(--orange-dk); background: rgba(250,129,18,0.08); border-radius: 999px; padding: 10px 14px; border: 1px solid rgba(250,129,18,0.18); }
-        .inactive-toggle button { border: none; background: transparent; color: var(--orange-dk); font-weight: 700; cursor: pointer; padding: 0; }
+        .badge-free        { background: rgba(34,197,94,0.12);  color: #166534; }
+        .dot-available   { background: #22c55e; }
+        .dot-booked      { background: var(--orange); }
+        .dot-maintenance { background: #94a3b8; }
+
+        /* ── INACTIVE SECTION ────────────────────────────── */
+        .inactive-section { margin-top: 24px; }
+        .inactive-section-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.1rem;
+            color: rgba(34,34,34,0.45);
+            letter-spacing: 0.08em;
+            margin-bottom: 14px;
+            padding-top: 16px;
+            border-top: 1px dashed rgba(34,34,34,0.1);
+        }
         .hidden { display: none !important; }
+        .show-inactive-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            border-radius: 99px;
+            background: rgba(250,129,18,0.08);
+            border: 1px solid rgba(250,129,18,0.2);
+            color: var(--orange-dk);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.18s;
+        }
+        .show-inactive-btn:hover { background: rgba(250,129,18,0.16); }
+
+        /* ── ACCOUNT TAB ─────────────────────────────────── */
+        .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .account-info-card {
+            background: linear-gradient(135deg, var(--black), #1a1a2e);
+            background-image: repeating-linear-gradient(
+                -55deg, transparent, transparent 18px,
+                rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
+            );
+            border-radius: 16px;
+            padding: 24px;
+            color: var(--white);
+            grid-column: span 2;
+        }
+        .account-info-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .account-avatar-large {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--orange);
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.6rem;
+            color: var(--white);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 0 0 4px rgba(250,129,18,0.25);
+        }
+        .account-info-name  { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; line-height: 1; }
+        .account-info-role  { font-size: 0.8rem; color: var(--orange); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 3px; }
+        .account-meta-grid  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .account-meta-item  { }
+        .account-meta-label { font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(245,231,198,0.45); margin-bottom: 4px; }
+        .account-meta-value { font-size: 0.95rem; color: rgba(255,255,255,0.9); font-weight: 500; }
+        .account-status-active   { color: #86efac; }
+        .account-status-inactive { color: #fca5a5; }
+
+        /* ── MODAL ───────────────────────────────────────── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(34,34,34,0.55);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: var(--white);
+            border-radius: 20px;
+            width: min(100%, 540px);
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 32px 80px rgba(15,23,42,0.18);
+            animation: fadeUp 0.35s cubic-bezier(0.16,1,0.3,1) both;
+        }
+        .modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 22px 28px;
+            background-color: var(--black);
+            background-image: repeating-linear-gradient(
+                -55deg, transparent, transparent 18px,
+                rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
+            );
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .modal-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.3rem;
+            color: var(--white);
+            letter-spacing: 0.06em;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: rgba(245,231,198,0.6);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.18s, color 0.18s;
+            font-size: 1.4rem;
+            line-height: 1;
+        }
+        .modal-close:hover { background: rgba(250,129,18,0.2); color: var(--white); }
+        .modal-body { padding: 28px; }
+        .modal-body .form-grid { gap: 18px; }
+
+        /* ── RESPONSIVE ──────────────────────────────────── */
+        @media (max-width: 1100px) {
+            .main-content { padding: 28px 24px; }
+        }
         @media (max-width: 900px) {
-            body { display: block; }
-            .page-shell { flex-direction: column; padding: 18px; }
-            .sidebar { width: 100%; position: relative; }
-            .page-head { flex-direction: column; align-items: stretch; }
-            .form-row.split { grid-template-columns: 1fr; }
-            .page-actions { justify-content: stretch; }
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: static; }
+            .main-content { padding: 24px 20px; }
+            .form-grid-2 { grid-template-columns: 1fr; }
+            .account-grid { grid-template-columns: 1fr; }
+            .account-info-card { grid-column: span 1; }
+            .account-meta-grid { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="page-shell">
-        <aside class="sidebar">
-            <div class="sidebar-brand">
-                <div class="sidebar-logo">RK</div>
-                <div>
-                    <div class="sidebar-wordmark-top">Radog's Kennel</div>
-                    <div class="sidebar-wordmark-sub">Pet Hotel Admin</div>
-                </div>
-            </div>
-            <div class="sidebar-user">
-                <div class="user-title">Signed in as</div>
-                <div class="user-name"><?php echo escape($_SESSION['username'] ?? 'Admin'); ?></div>
-                <div class="user-role"><?php echo escape($_SESSION['group_name'] ?? 'Administrator'); ?></div>
-            </div>
-            <nav class="sidebar-nav">
-                <?php
-                $nav = [
-                    ['href' => 'admin_dashboard.php', 'label' => 'Dashboard', 'icon' => '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-18v7h6V2h-6z"/></svg>'],
-                    ['href' => 'encode_reservation.php', 'label' => 'Schedule', 'icon' => '<svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11zm0-13H5V6h14v1z"/></svg>'],
-                    ['href' => 'calendar-unified.php', 'label' => 'Calendar', 'icon' => '<svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4H5V6h14v2zm0 12H5V10h14v10z"/></svg>'],
-                    ['href' => 'owner.php', 'label' => 'Owners', 'icon' => '<svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>'],
-                    ['href' => 'pets.php', 'label' => 'Pets', 'icon' => '<svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>'],
-                    // ['href' => 'checkout.php', 'label' => 'Checkout / Payments', 'icon' => '<svg viewBox="0 0 24 24"><path d="M20 6H4a2 2 0 0 0-2 2v2h20V8a2 2 0 0 0-2-2zm0 6H2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6zm-3 5H7v-2h10v2z"/></svg>'],
-                    ['href' => 'user_management.php', 'label' => 'User Management', 'icon' => '<svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>', 'active' => true],
-                    ['href' => '../logout.php', 'label' => 'Logout', 'icon' => '<svg viewBox="0 0 24 24"><path d="M16 13v-2H7V8l-5 4 5 4v-3h9zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>'],
-                ];
-                foreach ($nav as $item):
-                ?>
-                    <a href="<?php echo escape($item['href']); ?>" class="nav-link<?php echo !empty($item['active']) ? ' active' : ''; ?>">
-                        <?php echo $item['icon']; ?>
-                        <span><?php echo escape($item['label']); ?></span>
-                    </a>
-                <?php endforeach; ?>
-            </nav>
-        </aside>
-        <main class="main-content">
-            <div class="page-head">
-                <div class="page-copy">
-                    <div class="eyebrow">Administration</div>
-                    <h1>User Management</h1>
-                    <p>Manage system reference data and account settings.</p>
-                </div>
-                <div class="page-actions">
-                    <button type="button" class="btn btn-ghost" id="openAccountModal">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style="margin-right:10px;"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM4 20v-1c0-2.76 3.58-5 8-5s8 2.24 8 5v1H4z"/></svg>
-                        My Account
-                    </button>
-                </div>
-            </div>
-            <div class="tab-bar" role="tablist">
-                <button type="button" class="tab-btn" data-tab="accommodation">Accommodation</button>
-                <button type="button" class="tab-btn" data-tab="tier">Tier</button>
-                <button type="button" class="tab-btn" data-tab="pet_category">Pet Category</button>
-                <button type="button" class="tab-btn" data-tab="service">Service</button>
-            </div>
 
-            <div id="panel-accommodation" class="tab-panel">
-                <?php if ($activeTab === 'accommodation' && $success): ?>
-                    <div class="alert">Accommodation action completed successfully.</div>
-                <?php endif; ?>
-                <div class="panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px;"><h2>New Accommodation</h2></div>
-                    <?php if ($formErrors['accommodation']): ?>
-                        <div class="alert error"><?php echo escape($formErrors['accommodation']); ?></div>
-                    <?php endif; ?>
-                    <form method="POST" action="user_management.php?tab=accommodation" class="form-row split">
-                        <div class="field">
-                            <label for="unit_name">Unit Name</label>
-                            <input type="text" id="unit_name" name="unit_name" readonly>
-                        </div>
-                        <div class="field">
-                            <label for="accommodation_type">Accommodation Type</label>
-                            <input type="text" id="accommodation_type" name="accommodation_type" placeholder="Stainless Cage, Airconditioned Room" required>
-                        </div>
-                        <div class="field" style="grid-column: span 2;">
-                            <label for="tier_id">Tier</label>
-                            <select id="tier_id" name="tier_id" required>
-                                <?php foreach ($activeTiers as $tier): ?>
-                                    <option value="<?php echo escape($tier['TIER_ID']); ?>" data-tier-name="<?php echo escape($tier['TIER_NAME']); ?>"><?php echo escape($tier['TIER_NAME']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <input type="hidden" name="action" value="add_accommodation">
-                        <input type="hidden" name="tab" value="accommodation">
-                        <button type="submit" class="btn btn-primary" style="grid-column: span 2; justify-self:start;">Add Accommodation</button>
-                    </form>
+<!-- ═══════════════════════════════════════════ SIDEBAR -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="sidebar-logo-placeholder">RK</div>
+        <div>
+            <div class="sidebar-wordmark-top">Radog's Kennel</div>
+            <div class="sidebar-wordmark-sub">Pet Hotel Management</div>
+        </div>
+    </div>
+
+    <div class="sidebar-user">
+        <div class="sidebar-avatar"><?php echo strtoupper(substr($_SESSION['username'] ?? 'A', 0, 1)); ?></div>
+        <div>
+            <div class="sidebar-user-name"><?php echo escape($_SESSION['username'] ?? 'Admin'); ?></div>
+            <div class="sidebar-user-role"><?php echo escape($_SESSION['group_name'] ?? 'Administrator'); ?></div>
+        </div>
+    </div>
+
+    <div class="nav-section-label">Navigation</div>
+    <nav class="nav-list">
+        <a href="admin_dashboard.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-18v7h6V2h-6z"/></svg>
+            Dashboard
+        </a>
+        <a href="encode_reservation.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11zm0-13H5V6h14v1z"/></svg>
+            Schedule
+        </a>
+        <a href="calendar-unified.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4H5V6h14v2zm0 12H5V10h14v10z"/></svg>
+            Calendar
+        </a>
+        <a href="owner.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>
+            Owners
+        </a>
+        <a href="pets.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
+            Pets
+        </a>
+        <a href="user_management.php" class="nav-link active">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+            User Management
+        </a>
+    </nav>
+
+    <div class="sidebar-spacer"></div>
+
+    <a href="../logout.php" class="logout-btn">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16 13v-2H7V8l-5 4 5 4v-3h9zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
+        Logout
+    </a>
+</aside>
+
+<!-- ═══════════════════════════════════════════ MAIN CONTENT -->
+<main class="main-content">
+
+    <div class="page-eyebrow">Administration</div>
+    <h1 class="page-title">User Management</h1>
+    <p class="page-subtitle">Manage accommodations, tiers, pet categories, services, and your account settings.</p>
+
+    <!-- Tab Bar -->
+    <div class="tab-bar" role="tablist">
+        <button type="button" class="tab-btn" data-tab="accommodation">
+            <span>Accommodation</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="tier">Tier</button>
+        <button type="button" class="tab-btn" data-tab="pet_category">Pet Category</button>
+        <button type="button" class="tab-btn" data-tab="service">Service</button>
+        <button type="button" class="tab-btn" data-tab="account">
+            <span>My Account</span>
+        </button>
+    </div>
+
+    <!-- ─────────────── TAB: ACCOMMODATION ─────────────── -->
+    <div id="panel-accommodation" class="tab-panel">
+        <?php if ($activeTab === 'accommodation' && $success): ?>
+            <div class="alert alert-success">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                Accommodation updated successfully.
+            </div>
+        <?php endif; ?>
+        <?php if ($formErrors['accommodation']): ?>
+            <div class="alert alert-error">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                <?php echo escape($formErrors['accommodation']); ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <div class="panel-icon">
+                        <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                    </div>
+                    <div>
+                        <div class="panel-heading">Accommodation Units</div>
+                        <div class="panel-subtext"><?php echo count($accommodations); ?> unit(s) registered</div>
+                    </div>
                 </div>
-                <div class="panel">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;"><h2>Accommodation Records</h2></div>
-                    <table class="records-table">
-                        <thead>
-                            <tr>
-                                <th>Unit Name</th>
-                                <th>Accommodation Type</th>
-                                <th>Tier</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($accommodations as $unit): ?>
-                            <tr>
-                                <td><?php echo escape($unit['UNIT_NAME']); ?></td>
-                                <td><?php echo escape($unit['ACCOMMODATION_TYPE']); ?></td>
-                                <td><?php echo escape($unit['TIER_NAME']); ?></td>
-                                <td><?php echo renderStatusBadge($unit['OCCUPANCY_STATUS']); ?></td>
-                                <td class="actions">
-                                    <button type="button" class="btn btn-ghost btn-small edit-accommodation" 
+                <button type="button" class="btn btn-primary" id="openAddAccommodation">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                    Add Unit
+                </button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Unit Name</th>
+                            <th>Type</th>
+                            <th>Tier</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($accommodations as $unit): ?>
+                        <?php
+                            $badgeClass = 'badge-maintenance'; $dotClass = 'dot-maintenance';
+                            if ($unit['OCCUPANCY_STATUS'] === 'Available') { $badgeClass = 'badge-available'; $dotClass = 'dot-available'; }
+                            elseif ($unit['OCCUPANCY_STATUS'] === 'Booked') { $badgeClass = 'badge-booked'; $dotClass = 'dot-booked'; }
+                        ?>
+                        <tr>
+                            <td><strong><?php echo escape($unit['UNIT_NAME']); ?></strong></td>
+                            <td><?php echo escape($unit['ACCOMMODATION_TYPE']); ?></td>
+                            <td><?php echo escape($unit['TIER_NAME']); ?></td>
+                            <td>
+                                <span class="status-badge <?php echo $badgeClass; ?>">
+                                    <span class="status-dot <?php echo $dotClass; ?>"></span>
+                                    <?php echo escape($unit['OCCUPANCY_STATUS']); ?>
+                                </span>
+                            </td>
+                            <td>
+                                <div class="td-actions">
+                                    <button type="button" class="btn btn-ghost btn-sm edit-accommodation"
                                         data-id="<?php echo escape($unit['ACCOMMODATION_ID']); ?>"
                                         data-unit="<?php echo escape($unit['UNIT_NAME']); ?>"
                                         data-type="<?php echo escape($unit['ACCOMMODATION_TYPE']); ?>"
@@ -692,82 +1078,79 @@ function badgeFree() {
                                     <form method="POST" action="user_management.php?tab=accommodation" style="display:inline;">
                                         <input type="hidden" name="action" value="deactivate_accommodation">
                                         <input type="hidden" name="accommodation_id" value="<?php echo escape($unit['ACCOMMODATION_ID']); ?>">
-                                        <button type="submit" class="btn btn-danger btn-small" onclick="return confirm('Put this accommodation under maintenance?');">Deactivate</button>
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Put this unit under maintenance?');">Deactivate</button>
                                     </form>
                                     <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($accommodations)): ?>
+                        <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No accommodation units yet. Add one to get started.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─────────────── TAB: TIER ─────────────── -->
+    <div id="panel-tier" class="tab-panel" style="display:none;">
+        <?php if ($activeTab === 'tier' && $success): ?>
+            <div class="alert alert-success">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                Tier updated successfully.
+            </div>
+        <?php endif; ?>
+        <?php if ($formErrors['tier']): ?>
+            <div class="alert alert-error">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                <?php echo escape($formErrors['tier']); ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <div class="panel-icon">
+                        <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    </div>
+                    <div>
+                        <div class="panel-heading">Pet Tiers</div>
+                        <div class="panel-subtext"><?php echo count($activeTiers); ?> active tier(s)</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <?php if ($supportsStatus['TIER']): ?>
+                        <button type="button" class="show-inactive-btn" id="toggleTierInactive">Show Inactive</button>
+                    <?php endif; ?>
+                    <button type="button" class="btn btn-primary" id="openAddTier">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                        Add Tier
+                    </button>
                 </div>
             </div>
-
-            <div id="panel-tier" class="tab-panel" style="display:none;">
-                <?php if ($activeTab === 'tier' && $success): ?>
-                    <div class="alert">Tier action completed successfully.</div>
-                <?php endif; ?>
-                <div class="panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px;"><h2>New Tier</h2></div>
-                    <?php if ($formErrors['tier']): ?>
-                        <div class="alert error"><?php echo escape($formErrors['tier']); ?></div>
-                    <?php endif; ?>
-                    <form method="POST" action="user_management.php?tab=tier" class="form-row">
-                        <div class="form-row split">
-                            <div class="field">
-                                <label for="tier_name">Tier Name</label>
-                                <input type="text" id="tier_name" name="tier_name" placeholder="Small, Medium, Large, Giant" required>
-                            </div>
-                            <div class="field">
-                                <label for="tier_description">Description</label>
-                                <input type="text" id="tier_description" name="tier_description" placeholder="Short tier description">
-                            </div>
-                        </div>
-                        <div class="form-row split">
-                            <div class="field">
-                                <label for="weight_min">Weight Min (kg)</label>
-                                <input type="number" id="weight_min" name="weight_min" min="0" step="0.01" required>
-                            </div>
-                            <div class="field">
-                                <label for="weight_max">Weight Max (kg)</label>
-                                <input type="number" id="weight_max" name="weight_max" min="0" step="0.01" required>
-                            </div>
-                        </div>
-                        <div class="field">
-                            <label for="daily_rate">Daily Rate</label>
-                            <div class="field-prefix"><span>₱</span><input type="number" id="daily_rate" name="daily_rate" min="0" step="0.01" required></div>
-                        </div>
-                        <input type="hidden" name="action" value="add_tier">
-                        <input type="hidden" name="tab" value="tier">
-                        <button type="submit" class="btn btn-primary">Add Tier</button>
-                    </form>
-                </div>
-                <div class="panel">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
-                        <h2>Tier Records</h2>
-                        <?php if ($supportsStatus['TIER']): ?>
-                            <button type="button" class="inactive-toggle" id="toggleTierInactive">Show Inactive</button>
-                        <?php endif; ?>
-                    </div>
-                    <table class="records-table">
-                        <thead>
-                            <tr>
-                                <th>Tier Name</th>
-                                <th>Description</th>
-                                <th>Weight Range</th>
-                                <th>Daily Rate</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($activeTiers as $tier): ?>
-                            <tr>
-                                <td><?php echo escape($tier['TIER_NAME']); ?></td>
-                                <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
-                                <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
-                                <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
-                                <td class="actions">
-                                    <button type="button" class="btn btn-ghost btn-small edit-tier"
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Tier</th>
+                            <th>Description</th>
+                            <th>Weight Range</th>
+                            <th>Daily Rate</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($activeTiers as $tier): ?>
+                        <tr>
+                            <td><strong><?php echo escape($tier['TIER_NAME']); ?></strong></td>
+                            <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
+                            <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
+                            <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
+                            <td>
+                                <div class="td-actions">
+                                    <button type="button" class="btn btn-ghost btn-sm edit-tier"
                                         data-id="<?php echo escape($tier['TIER_ID']); ?>"
                                         data-name="<?php echo escape($tier['TIER_NAME']); ?>"
                                         data-description="<?php echo escape($tier['TIER_DESCRIPTION']); ?>"
@@ -778,100 +1161,109 @@ function badgeFree() {
                                         Edit
                                     </button>
                                     <?php if ($supportsStatus['TIER']): ?>
-                                        <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
-                                            <input type="hidden" name="action" value="deactivate_tier">
-                                            <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
-                                            <input type="hidden" name="status" value="Inactive">
-                                            <button type="submit" class="btn btn-danger btn-small" onclick="return confirm('Deactivate this tier?');">Deactivate</button>
-                                        </form>
+                                    <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
+                                        <input type="hidden" name="action" value="deactivate_tier">
+                                        <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
+                                        <input type="hidden" name="status" value="Inactive">
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this tier?');">Deactivate</button>
+                                    </form>
                                     <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($activeTiers)): ?>
+                        <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No tiers found.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <?php if ($supportsStatus['TIER']): ?>
+            <div class="inactive-section hidden" id="tierInactiveSection">
+                <div class="inactive-section-title">Inactive Tiers</div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Tier</th><th>Description</th><th>Weight Range</th><th>Daily Rate</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($inactiveTiers as $tier): ?>
+                            <tr>
+                                <td><?php echo escape($tier['TIER_NAME']); ?></td>
+                                <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
+                                <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
+                                <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
+                                <td>
+                                    <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
+                                        <input type="hidden" name="action" value="deactivate_tier">
+                                        <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
+                                        <input type="hidden" name="status" value="Active">
+                                        <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
+                        <?php if (empty($inactiveTiers)): ?>
+                            <tr><td colspan="5" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive tiers.</td></tr>
+                        <?php endif; ?>
                         </tbody>
                     </table>
-                    <?php if ($supportsStatus['TIER']): ?>
-                        <div class="inactive-section hidden" id="tierInactiveSection">
-                            <h3>Inactive Tier Records</h3>
-                            <table class="records-table">
-                                <thead>
-                                    <tr>
-                                        <th>Tier Name</th>
-                                        <th>Description</th>
-                                        <th>Weight Range</th>
-                                        <th>Daily Rate</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                <?php foreach ($inactiveTiers as $tier): ?>
-                                    <tr>
-                                        <td><?php echo escape($tier['TIER_NAME']); ?></td>
-                                        <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
-                                        <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
-                                        <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
-                                        <td class="actions">
-                                            <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
-                                                <input type="hidden" name="action" value="deactivate_tier">
-                                                <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
-                                                <input type="hidden" name="status" value="Active">
-                                                <button type="submit" class="btn btn-primary btn-small">Reactivate</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
                 </div>
             </div>
+            <?php endif; ?>
+        </div>
+    </div>
 
-            <div id="panel-pet_category" class="tab-panel" style="display:none;">
-                <?php if ($activeTab === 'pet_category' && $success): ?>
-                    <div class="alert">Pet category action completed successfully.</div>
-                <?php endif; ?>
-                <div class="panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px;"><h2>New Pet Category</h2></div>
-                    <?php if ($formErrors['pet_category']): ?>
-                        <div class="alert error"><?php echo escape($formErrors['pet_category']); ?></div>
-                    <?php endif; ?>
-                    <form method="POST" action="user_management.php?tab=pet_category" class="form-row">
-                        <div class="field">
-                            <label for="category_name">Category Name</label>
-                            <input type="text" id="category_name" name="category_name" placeholder="Dog, Cat, Hamster" required>
-                        </div>
-                        <div class="field">
-                            <label for="species_notes">Species Notes / Description</label>
-                            <textarea id="species_notes" name="species_notes" placeholder="Notes for this species"></textarea>
-                        </div>
-                        <input type="hidden" name="action" value="add_pet_category">
-                        <input type="hidden" name="tab" value="pet_category">
-                        <button type="submit" class="btn btn-primary">Add Category</button>
-                    </form>
-                </div>
-                <div class="panel">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
-                        <h2>Pet Category Records</h2>
-                        <?php if ($supportsStatus['PET_CATEGORY']): ?>
-                            <button type="button" class="inactive-toggle" id="toggleCategoryInactive">Show Inactive</button>
-                        <?php endif; ?>
+    <!-- ─────────────── TAB: PET CATEGORY ─────────────── -->
+    <div id="panel-pet_category" class="tab-panel" style="display:none;">
+        <?php if ($activeTab === 'pet_category' && $success): ?>
+            <div class="alert alert-success">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                Pet category updated successfully.
+            </div>
+        <?php endif; ?>
+        <?php if ($formErrors['pet_category']): ?>
+            <div class="alert alert-error">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                <?php echo escape($formErrors['pet_category']); ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <div class="panel-icon">
+                        <svg viewBox="0 0 24 24"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
                     </div>
-                    <table class="records-table">
-                        <thead>
-                            <tr>
-                                <th>Category Name</th>
-                                <th>Species Notes</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($activeCategories as $cat): ?>
-                            <tr>
-                                <td><?php echo escape($cat['CATEGORY_NAME']); ?></td>
-                                <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
-                                <td class="actions">
-                                    <button type="button" class="btn btn-ghost btn-small edit-category"
+                    <div>
+                        <div class="panel-heading">Pet Categories</div>
+                        <div class="panel-subtext"><?php echo count($activeCategories); ?> active categor<?php echo count($activeCategories) === 1 ? 'y' : 'ies'; ?></div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <?php if ($supportsStatus['PET_CATEGORY']): ?>
+                        <button type="button" class="show-inactive-btn" id="toggleCategoryInactive">Show Inactive</button>
+                    <?php endif; ?>
+                    <button type="button" class="btn btn-primary" id="openAddCategory">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                        Add Category
+                    </button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Category</th><th>Species Notes</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($activeCategories as $cat): ?>
+                        <tr>
+                            <td><strong><?php echo escape($cat['CATEGORY_NAME']); ?></strong></td>
+                            <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
+                            <td>
+                                <div class="td-actions">
+                                    <button type="button" class="btn btn-ghost btn-sm edit-category"
                                         data-id="<?php echo escape($cat['CATEGORY_ID']); ?>"
                                         data-name="<?php echo escape($cat['CATEGORY_NAME']); ?>"
                                         data-notes="<?php echo escape($cat['SPECIES_NOTES']); ?>"
@@ -879,102 +1271,112 @@ function badgeFree() {
                                         Edit
                                     </button>
                                     <?php if ($supportsStatus['PET_CATEGORY']): ?>
-                                        <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
-                                            <input type="hidden" name="action" value="deactivate_pet_category">
-                                            <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
-                                            <input type="hidden" name="status" value="Inactive">
-                                            <button type="submit" class="btn btn-danger btn-small" onclick="return confirm('Deactivate this category?');">Deactivate</button>
-                                        </form>
+                                    <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
+                                        <input type="hidden" name="action" value="deactivate_pet_category">
+                                        <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
+                                        <input type="hidden" name="status" value="Inactive">
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this category?');">Deactivate</button>
+                                    </form>
                                     <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($activeCategories)): ?>
+                        <tr><td colspan="3" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No categories found.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <?php if ($supportsStatus['PET_CATEGORY']): ?>
+            <div class="inactive-section hidden" id="categoryInactiveSection">
+                <div class="inactive-section-title">Inactive Categories</div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Category</th><th>Species Notes</th><th>Actions</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($inactiveCategories as $cat): ?>
+                            <tr>
+                                <td><?php echo escape($cat['CATEGORY_NAME']); ?></td>
+                                <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
+                                <td>
+                                    <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
+                                        <input type="hidden" name="action" value="deactivate_pet_category">
+                                        <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
+                                        <input type="hidden" name="status" value="Active">
+                                        <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
+                        <?php if (empty($inactiveCategories)): ?>
+                            <tr><td colspan="3" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive categories.</td></tr>
+                        <?php endif; ?>
                         </tbody>
                     </table>
-                    <?php if ($supportsStatus['PET_CATEGORY']): ?>
-                        <div class="inactive-section hidden" id="categoryInactiveSection">
-                            <h3>Inactive Categories</h3>
-                            <table class="records-table">
-                                <thead>
-                                    <tr>
-                                        <th>Category Name</th>
-                                        <th>Species Notes</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                <?php foreach ($inactiveCategories as $cat): ?>
-                                    <tr>
-                                        <td><?php echo escape($cat['CATEGORY_NAME']); ?></td>
-                                        <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
-                                        <td class="actions">
-                                            <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
-                                                <input type="hidden" name="action" value="deactivate_pet_category">
-                                                <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
-                                                <input type="hidden" name="status" value="Active">
-                                                <button type="submit" class="btn btn-primary btn-small">Reactivate</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
                 </div>
             </div>
+            <?php endif; ?>
+        </div>
+    </div>
 
-            <div id="panel-service" class="tab-panel" style="display:none;">
-                <?php if ($activeTab === 'service' && $success): ?>
-                    <div class="alert">Service action completed successfully.</div>
-                <?php endif; ?>
-                <div class="panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px;"><h2>New Service</h2></div>
-                    <?php if ($formErrors['service']): ?>
-                        <div class="alert error"><?php echo escape($formErrors['service']); ?></div>
-                    <?php endif; ?>
-                    <form method="POST" action="user_management.php?tab=service" class="form-row">
-                        <div class="field">
-                            <label for="service_name">Service Name</label>
-                            <input type="text" id="service_name" name="service_name" placeholder="Premium Bubble Bath" required>
-                        </div>
-                        <div class="field">
-                            <label for="service_description">Description</label>
-                            <textarea id="service_description" name="service_description" placeholder="Service details"></textarea>
-                        </div>
-                        <div class="field">
-                            <label for="price">Price</label>
-                            <div class="field-prefix"><span>₱</span><input type="number" id="price" name="price" min="0" step="0.01" value="0.00" required></div>
-                        </div>
-                        <input type="hidden" name="action" value="add_service">
-                        <input type="hidden" name="tab" value="service">
-                        <button type="submit" class="btn btn-primary">Add Service</button>
-                    </form>
-                </div>
-                <div class="panel">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
-                        <h2>Service Records</h2>
-                        <?php if ($supportsStatus['SERVICE']): ?>
-                            <button type="button" class="inactive-toggle" id="toggleServiceInactive">Show Inactive</button>
-                        <?php endif; ?>
+    <!-- ─────────────── TAB: SERVICE ─────────────── -->
+    <div id="panel-service" class="tab-panel" style="display:none;">
+        <?php if ($activeTab === 'service' && $success): ?>
+            <div class="alert alert-success">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                Service updated successfully.
+            </div>
+        <?php endif; ?>
+        <?php if ($formErrors['service']): ?>
+            <div class="alert alert-error">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                <?php echo escape($formErrors['service']); ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <div class="panel-icon">
+                        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                     </div>
-                    <table class="records-table">
-                        <thead>
-                            <tr>
-                                <th>Service Name</th>
-                                <th>Description</th>
-                                <th>Price</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($activeServices as $svc): ?>
-                            <tr>
-                                <td><?php echo escape($svc['SERVICE_NAME']); ?></td>
-                                <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
-                                <td><?php echo $svc['PRICE'] === 0.0 ? badgeFree() : '₱' . escape(number_format($svc['PRICE'], 2)); ?></td>
-                                <td class="actions">
-                                    <button type="button" class="btn btn-ghost btn-small edit-service"
+                    <div>
+                        <div class="panel-heading">Services</div>
+                        <div class="panel-subtext"><?php echo count($activeServices); ?> active service(s)</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <?php if ($supportsStatus['SERVICE']): ?>
+                        <button type="button" class="show-inactive-btn" id="toggleServiceInactive">Show Inactive</button>
+                    <?php endif; ?>
+                    <button type="button" class="btn btn-primary" id="openAddService">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                        Add Service
+                    </button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Service Name</th><th>Description</th><th>Price</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($activeServices as $svc): ?>
+                        <tr>
+                            <td><strong><?php echo escape($svc['SERVICE_NAME']); ?></strong></td>
+                            <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
+                            <td>
+                                <?php if ((float)$svc['PRICE'] === 0.0): ?>
+                                    <span class="status-badge badge-free">FREE</span>
+                                <?php else: ?>
+                                    ₱<?php echo escape(number_format($svc['PRICE'], 2)); ?>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <div class="td-actions">
+                                    <button type="button" class="btn btn-ghost btn-sm edit-service"
                                         data-id="<?php echo escape($svc['SERVICE_ID']); ?>"
                                         data-name="<?php echo escape($svc['SERVICE_NAME']); ?>"
                                         data-desc="<?php echo escape($svc['SERVICE_DESCRIPTION']); ?>"
@@ -983,266 +1385,472 @@ function badgeFree() {
                                         Edit
                                     </button>
                                     <?php if ($supportsStatus['SERVICE']): ?>
-                                        <form method="POST" action="user_management.php?tab=service" style="display:inline;">
-                                            <input type="hidden" name="action" value="deactivate_service">
-                                            <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
-                                            <input type="hidden" name="status" value="Inactive">
-                                            <button type="submit" class="btn btn-danger btn-small" onclick="return confirm('Deactivate this service?');">Deactivate</button>
-                                        </form>
+                                    <form method="POST" action="user_management.php?tab=service" style="display:inline;">
+                                        <input type="hidden" name="action" value="deactivate_service">
+                                        <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
+                                        <input type="hidden" name="status" value="Inactive">
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this service?');">Deactivate</button>
+                                    </form>
                                     <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($activeServices)): ?>
+                        <tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No services found.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <?php if ($supportsStatus['SERVICE']): ?>
+            <div class="inactive-section hidden" id="serviceInactiveSection">
+                <div class="inactive-section-title">Inactive Services</div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Service Name</th><th>Description</th><th>Price</th><th>Actions</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($inactiveServices as $svc): ?>
+                            <tr>
+                                <td><?php echo escape($svc['SERVICE_NAME']); ?></td>
+                                <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
+                                <td>
+                                    <?php if ((float)$svc['PRICE'] === 0.0): ?>
+                                        <span class="status-badge badge-free">FREE</span>
+                                    <?php else: ?>
+                                        ₱<?php echo escape(number_format($svc['PRICE'], 2)); ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <form method="POST" action="user_management.php?tab=service" style="display:inline;">
+                                        <input type="hidden" name="action" value="deactivate_service">
+                                        <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
+                                        <input type="hidden" name="status" value="Active">
+                                        <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
+                        <?php if (empty($inactiveServices)): ?>
+                            <tr><td colspan="4" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive services.</td></tr>
+                        <?php endif; ?>
                         </tbody>
                     </table>
-                    <?php if ($supportsStatus['SERVICE']): ?>
-                        <div class="inactive-section hidden" id="serviceInactiveSection">
-                            <h3>Inactive Services</h3>
-                            <table class="records-table">
-                                <thead>
-                                    <tr>
-                                        <th>Service Name</th>
-                                        <th>Description</th>
-                                        <th>Price</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                <?php foreach ($inactiveServices as $svc): ?>
-                                    <tr>
-                                        <td><?php echo escape($svc['SERVICE_NAME']); ?></td>
-                                        <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
-                                        <td><?php echo $svc['PRICE'] === 0.0 ? badgeFree() : '₱' . escape(number_format($svc['PRICE'], 2)); ?></td>
-                                        <td class="actions">
-                                            <form method="POST" action="user_management.php?tab=service" style="display:inline;">
-                                                <input type="hidden" name="action" value="deactivate_service">
-                                                <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
-                                                <input type="hidden" name="status" value="Active">
-                                                <button type="submit" class="btn btn-primary btn-small">Reactivate</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
                 </div>
             </div>
-        </main>
+            <?php endif; ?>
+        </div>
     </div>
 
-    <div class="modal-backdrop" id="accountModal">
-        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
-            <div class="modal-header">
-                <h3 id="accountModalTitle">My Account</h3>
-                <button type="button" class="modal-close" id="closeAccountModal">×</button>
+    <!-- ─────────────── TAB: MY ACCOUNT ─────────────── -->
+    <div id="panel-account" class="tab-panel" style="display:none;">
+        <?php if ($activeTab === 'account' && $success): ?>
+            <div class="alert alert-success">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                Account settings saved successfully.
             </div>
-            <div class="modal-body">
-                <div class="modal-section">
-                    <h4>Account Info</h4>
-                    <div class="detail-row"><label>Username</label><span><?php echo escape($currentUser['USERNAME']); ?></span></div>
-                    <div class="detail-row"><label>Employee Username</label><span><?php echo escape($currentUser['EMPLOYEE_USERNAME']); ?></span></div>
-                    <div class="detail-row"><label>Account Status</label><span><?php echo escape($currentUser['ACCOUNT_STATUS']); ?></span></div>
-                    <div class="detail-row"><label>Role / Group</label><span><?php echo escape($currentUser['GROUP_NAME']); ?></span></div>
+        <?php endif; ?>
+
+        <!-- Account Info Card -->
+        <div class="account-info-card">
+            <div class="account-info-header">
+                <div class="account-avatar-large"><?php echo strtoupper(substr($currentUser['USERNAME'] ?? 'A', 0, 1)); ?></div>
+                <div>
+                    <div class="account-info-name"><?php echo escape($currentUser['USERNAME']); ?></div>
+                    <div class="account-info-role"><?php echo escape($currentUser['GROUP_NAME']); ?></div>
                 </div>
-                <div class="modal-section">
-                    <h4>Edit Username</h4>
-                    <?php if ($formErrors['account']): ?>
-                        <div class="alert error"><?php echo escape($formErrors['account']); ?></div>
-                    <?php endif; ?>
-                    <form method="POST" action="user_management.php" id="usernameForm">
-                        <div class="field"><label for="account_username">Username</label><input type="text" id="account_username" name="username" value="<?php echo escape($currentUser['USERNAME']); ?>" required></div>
-                        <input type="hidden" name="action" value="update_username">
-                        <input type="hidden" name="tab" id="usernameFormTab" value="<?php echo escape($activeTab); ?>">
+            </div>
+            <div class="account-meta-grid">
+                <div class="account-meta-item">
+                    <div class="account-meta-label">Employee Username</div>
+                    <div class="account-meta-value"><?php echo escape($currentUser['EMPLOYEE_USERNAME']); ?></div>
+                </div>
+                <div class="account-meta-item">
+                    <div class="account-meta-label">Account Status</div>
+                    <div class="account-meta-value <?php echo $currentUser['ACCOUNT_STATUS'] === 'Active' ? 'account-status-active' : 'account-status-inactive'; ?>">
+                        <?php echo escape($currentUser['ACCOUNT_STATUS']); ?>
+                    </div>
+                </div>
+                <div class="account-meta-item">
+                    <div class="account-meta-label">Role / Group</div>
+                    <div class="account-meta-value"><?php echo escape($currentUser['GROUP_NAME']); ?></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="account-grid">
+            <!-- Edit Username -->
+            <div class="panel">
+                <div class="panel-header" style="margin-bottom:20px;">
+                    <div class="panel-header-left">
+                        <div class="panel-icon">
+                            <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>
+                        </div>
+                        <div class="panel-heading">Edit Username</div>
+                    </div>
+                </div>
+                <?php if ($formErrors['account']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['account']); ?>
+                    </div>
+                <?php endif; ?>
+                <form method="POST" action="user_management.php" class="form-grid">
+                    <div>
+                        <label class="field-label" for="account_username">New Username</label>
+                        <input type="text" id="account_username" name="username" value="<?php echo escape($currentUser['USERNAME']); ?>" required>
+                    </div>
+                    <input type="hidden" name="action" value="update_username">
+                    <input type="hidden" name="tab" value="account">
+                    <div>
                         <button type="submit" class="btn btn-primary">Save Username</button>
-                    </form>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Change Password -->
+            <div class="panel">
+                <div class="panel-header" style="margin-bottom:20px;">
+                    <div class="panel-header-left">
+                        <div class="panel-icon">
+                            <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                        </div>
+                        <div class="panel-heading">Change Password</div>
+                    </div>
                 </div>
-                <div class="modal-section">
-                    <h4>Change Password</h4>
-                    <?php if ($formErrors['password']): ?>
-                        <div class="alert error"><?php echo escape($formErrors['password']); ?></div>
-                    <?php endif; ?>
-                    <form method="POST" action="user_management.php" id="passwordForm">
-                        <div class="field"><label for="current_password">Current Password</label><input type="password" id="current_password" name="current_password" required></div>
-                        <div class="field"><label for="new_password">New Password</label><input type="password" id="new_password" name="new_password" required></div>
-                        <div class="field"><label for="confirm_password">Confirm New Password</label><input type="password" id="confirm_password" name="confirm_password" required></div>
-                        <input type="hidden" name="action" value="change_password">
-                        <input type="hidden" name="tab" id="passwordFormTab" value="<?php echo escape($activeTab); ?>">
+                <?php if ($formErrors['password']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['password']); ?>
+                    </div>
+                <?php endif; ?>
+                <form method="POST" action="user_management.php" class="form-grid">
+                    <div>
+                        <label class="field-label" for="current_password">Current Password</label>
+                        <input type="password" id="current_password" name="current_password" required>
+                    </div>
+                    <div>
+                        <label class="field-label" for="new_password">New Password</label>
+                        <input type="password" id="new_password" name="new_password" required>
+                    </div>
+                    <div>
+                        <label class="field-label" for="confirm_password">Confirm New Password</label>
+                        <input type="password" id="confirm_password" name="confirm_password" required>
+                    </div>
+                    <input type="hidden" name="action" value="change_password">
+                    <input type="hidden" name="tab" value="account">
+                    <div>
                         <button type="submit" class="btn btn-primary">Change Password</button>
-                    </form>
-                </div>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
 
-    <script>
-        const tabs = document.querySelectorAll('.tab-btn');
-        const panels = document.querySelectorAll('.tab-panel');
-        const accountModal = document.getElementById('accountModal');
-        const openAccountModal = document.getElementById('openAccountModal');
-        const closeAccountModal = document.getElementById('closeAccountModal');
-        const usernameFormTab = document.getElementById('usernameFormTab');
-        const passwordFormTab = document.getElementById('passwordFormTab');
-        const tierSelect = document.getElementById('tier_id');
-        const unitNameInput = document.getElementById('unit_name');
-        const inactiveToggleButtons = document.querySelectorAll('.inactive-toggle');
+</main>
 
-        const accommodationCounts = <?php echo json_encode($accommodationCounts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+<!-- ═══════════════════════════════════════════ MODAL (Add / Edit) -->
+<div class="modal-overlay" id="accountModal">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+        <div class="modal-head">
+            <span class="modal-title" id="accountModalTitle">Edit</span>
+            <button type="button" class="modal-close" id="closeAccountModal" aria-label="Close">&#x2715;</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <!-- Populated dynamically by JavaScript -->
+        </div>
+    </div>
+</div>
 
-        function showTab(name) {
-            panels.forEach(p => p.style.display = 'none');
-            tabs.forEach(b => b.classList.remove('active'));
-            const target = document.getElementById('panel-' + name);
-            const button = document.querySelector('[data-tab="' + name + '"]');
-            if (target && button) {
-                target.style.display = 'block';
-                button.classList.add('active');
-            }
-            history.replaceState(null, '', '?tab=' + name);
-            if (usernameFormTab) usernameFormTab.value = name;
-            if (passwordFormTab) passwordFormTab.value = name;
+<!-- ═══════════════════════════════════════════ JAVASCRIPT -->
+<script>
+(function () {
+    /* ── DATA FROM PHP ──────────────────────────────── */
+    const accommodationCounts = <?php echo json_encode($accommodationCounts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    const allTiers             = <?php echo json_encode(array_map(fn($t) => ['id' => (int)$t['TIER_ID'], 'name' => $t['TIER_NAME']], $activeTiers), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    const supportsStatusTier   = <?php echo $supportsStatus['TIER'] ? 'true' : 'false'; ?>;
+    const supportsStatusCat    = <?php echo $supportsStatus['PET_CATEGORY'] ? 'true' : 'false'; ?>;
+    const supportsStatusSvc    = <?php echo $supportsStatus['SERVICE'] ? 'true' : 'false'; ?>;
+    const initialTab           = <?php echo json_encode($activeTab); ?>;
+
+    /* ── ELEMENTS ───────────────────────────────────── */
+    const modal          = document.getElementById('accountModal');
+    const modalTitle     = document.getElementById('accountModalTitle');
+    const modalBody      = document.getElementById('modalBody');
+    const closeModalBtn  = document.getElementById('closeAccountModal');
+
+    /* ── HELPERS ────────────────────────────────────── */
+    function esc(str) {
+        const d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(str)));
+        return d.innerHTML;
+    }
+
+    function tierPrefix(name) {
+        if (name === 'Small')  return 'CAGE-S';
+        if (name === 'Medium') return 'ROOM-M';
+        if (name === 'Large')  return 'ROOM-L';
+        if (name === 'Giant')  return 'ROOM-G';
+        return 'UNIT-';
+    }
+
+    function buildTierOptions(selectedId) {
+        return allTiers.map(t =>
+            `<option value="${t.id}" data-tier-name="${esc(t.name)}" ${String(t.id) === String(selectedId) ? 'selected' : ''}>${esc(t.name)}</option>`
+        ).join('');
+    }
+
+    function fieldRow(label, inputHtml) {
+        return `<div><label class="field-label">${label}</label>${inputHtml}</div>`;
+    }
+
+    /* ── MODAL OPEN / CLOSE ─────────────────────────── */
+    function openModal(title, bodyHtml, afterRender) {
+        modalTitle.textContent = title;
+        modalBody.innerHTML    = bodyHtml;
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+        if (typeof afterRender === 'function') afterRender();
+    }
+
+    function closeModal() {
+        modal.classList.remove('open');
+        document.body.style.overflow = '';
+    }
+
+    closeModalBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+
+    /* ── TAB SWITCHING ──────────────────────────────── */
+    const tabs   = document.querySelectorAll('.tab-btn');
+    const panels = document.querySelectorAll('.tab-panel');
+
+    function showTab(name) {
+        panels.forEach(p => p.style.display = 'none');
+        tabs.forEach(b => b.classList.remove('active'));
+        const target = document.getElementById('panel-' + name);
+        const button = document.querySelector('[data-tab="' + name + '"]');
+        if (target)  target.style.display  = '';
+        if (button)  button.classList.add('active');
+        history.replaceState(null, '', '?tab=' + name);
+    }
+
+    tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab.dataset.tab)));
+    showTab(initialTab);
+
+    /* ── UNIT NAME AUTO-GENERATION (in modal) ───────── */
+    function setupUnitNameGeneration() {
+        const tierSel  = document.getElementById('modal_tier_id');
+        const unitInp  = document.getElementById('modal_unit_name');
+        if (!tierSel || !unitInp) return;
+
+        function refresh() {
+            const tierName = tierSel.options[tierSel.selectedIndex]?.dataset.tierName || '';
+            const prefix   = tierPrefix(tierName);
+            const cnt      = Number(accommodationCounts[tierSel.value] || 0) + 1;
+            unitInp.value  = prefix + cnt;
         }
+        tierSel.addEventListener('change', refresh);
+        refresh();
+    }
 
-        tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab.dataset.tab)));
-        showTab('<?php echo escape($activeTab); ?>');
+    /* ── ADD — ACCOMMODATION ────────────────────────── */
+    document.getElementById('openAddAccommodation').addEventListener('click', function () {
+        openModal('New Accommodation', `
+            <form method="POST" action="user_management.php?tab=accommodation" class="form-grid">
+                ${fieldRow('Unit Name (auto-generated)', '<input type="text" id="modal_unit_name" name="unit_name" readonly required>')}
+                ${fieldRow('Accommodation Type', '<input type="text" name="accommodation_type" placeholder="Stainless Cage, Airconditioned Room" required>')}
+                ${fieldRow('Tier', `<select id="modal_tier_id" name="tier_id" required>${buildTierOptions('')}</select>`)}
+                <input type="hidden" name="action" value="add_accommodation">
+                <input type="hidden" name="tab" value="accommodation">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary">Add Accommodation</button>
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                </div>
+            </form>
+        `, setupUnitNameGeneration);
+    });
 
-        function tierPrefix(name) {
-            if (name === 'Small') return 'CAGE-S';
-            if (name === 'Medium') return 'ROOM-M';
-            if (name === 'Large') return 'ROOM-L';
-            if (name === 'Giant') return 'ROOM-G';
-            return 'UNIT-';
-        }
+    /* ── ADD — TIER ─────────────────────────────────── */
+    document.getElementById('openAddTier').addEventListener('click', function () {
+        const statusField = supportsStatusTier ? '' : '';
+        openModal('New Tier', `
+            <form method="POST" action="user_management.php?tab=tier" class="form-grid">
+                <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                    ${fieldRow('Tier Name', '<input type="text" name="tier_name" placeholder="Small, Medium, Large, Giant" required>')}
+                    ${fieldRow('Description', '<input type="text" name="tier_description" placeholder="Short tier description">')}
+                </div>
+                <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                    ${fieldRow('Weight Min (kg)', '<input type="number" name="weight_min" min="0" step="0.01" required>')}
+                    ${fieldRow('Weight Max (kg)', '<input type="number" name="weight_max" min="0" step="0.01" required>')}
+                </div>
+                ${fieldRow('Daily Rate (₱)', '<div class="field-prefix-wrap"><span class="prefix-symbol">₱</span><input type="number" name="daily_rate" min="0" step="0.01" required></div>')}
+                <input type="hidden" name="action" value="add_tier">
+                <input type="hidden" name="tab" value="tier">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary">Add Tier</button>
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                </div>
+            </form>
+        `);
+    });
 
-        function updateUnitName() {
-            if (!tierSelect || !unitNameInput) return;
-            const tierName = tierSelect.options[tierSelect.selectedIndex]?.dataset.tierName || '';
-            const prefix = tierPrefix(tierName);
-            const count = Number(accommodationCounts[tierSelect.value] || 0) + 1;
-            unitNameInput.value = prefix + count;
-        }
-        if (tierSelect) {
-            tierSelect.addEventListener('change', updateUnitName);
-            updateUnitName();
-        }
+    /* ── ADD — PET CATEGORY ─────────────────────────── */
+    document.getElementById('openAddCategory').addEventListener('click', function () {
+        openModal('New Pet Category', `
+            <form method="POST" action="user_management.php?tab=pet_category" class="form-grid">
+                ${fieldRow('Category Name', '<input type="text" name="category_name" placeholder="Dog, Cat, Hamster" required>')}
+                ${fieldRow('Species Notes / Description', '<textarea name="species_notes" placeholder="Notes for this species"></textarea>')}
+                <input type="hidden" name="action" value="add_pet_category">
+                <input type="hidden" name="tab" value="pet_category">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary">Add Category</button>
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                </div>
+            </form>
+        `);
+    });
 
-        function openModal() {
-            accountModal.classList.add('open');
-        }
-        function closeModal() {
-            accountModal.classList.remove('open');
-        }
-        openAccountModal.addEventListener('click', openModal);
-        closeAccountModal.addEventListener('click', closeModal);
-        accountModal.addEventListener('click', (event) => {
-            if (event.target === accountModal) closeModal();
-        });
-        document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape') closeModal();
-        });
+    /* ── ADD — SERVICE ──────────────────────────────── */
+    document.getElementById('openAddService').addEventListener('click', function () {
+        openModal('New Service', `
+            <form method="POST" action="user_management.php?tab=service" class="form-grid">
+                ${fieldRow('Service Name', '<input type="text" name="service_name" placeholder="Premium Bubble Bath" required>')}
+                ${fieldRow('Description', '<textarea name="service_description" placeholder="Service details"></textarea>')}
+                ${fieldRow('Price (₱)', '<div class="field-prefix-wrap"><span class="prefix-symbol">₱</span><input type="number" name="price" min="0" step="0.01" value="0.00" required></div>')}
+                <input type="hidden" name="action" value="add_service">
+                <input type="hidden" name="tab" value="service">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary">Add Service</button>
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                </div>
+            </form>
+        `);
+    });
 
-        function createEditHandler(selector, buildHtml) {
-            document.querySelectorAll(selector).forEach(btn => {
-                btn.addEventListener('click', () => {
-                    accountModal.classList.add('open');
-                    document.getElementById('accountModalTitle').textContent = buildHtml.title;
-                    document.querySelector('.modal-body').innerHTML = buildHtml.content(btn);
-                });
-            });
-        }
-
-        document.querySelectorAll('.edit-accommodation').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const id = btn.dataset.id;
-                const unit = btn.dataset.unit;
-                const type = btn.dataset.type;
-                const tier = btn.dataset.tier;
-                const status = btn.dataset.status;
-                const options = Array.from(tierSelect.options).map(opt => `<option value="${opt.value}" ${opt.value === tier ? 'selected' : ''}>${opt.textContent}</option>`).join('');
-                document.getElementById('accountModalTitle').textContent = 'Edit Accommodation';
-                document.querySelector('.modal-body').innerHTML = `
-                    <form method="POST" action="user_management.php?tab=accommodation" class="form-row">
-                        <div class="field"><label>Unit Name</label><input type="text" name="unit_name" value="${unit}" readonly></div>
-                        <div class="field"><label>Accommodation Type</label><input type="text" name="accommodation_type" value="${type}" required></div>
-                        <div class="field"><label>Tier</label><select name="tier_id" required>${options}</select></div>
-                        <div class="field"><label>Occupancy Status</label><select name="occupancy_status" required><option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option><option value="Booked" ${status === 'Booked' ? 'selected' : ''}>Booked</option><option value="Under Maintenance" ${status === 'Under Maintenance' ? 'selected' : ''}>Under Maintenance</option></select></div>
-                        <input type="hidden" name="action" value="edit_accommodation">
-                        <input type="hidden" name="accommodation_id" value="${id}">
+    /* ── EDIT — ACCOMMODATION ───────────────────────── */
+    document.querySelectorAll('.edit-accommodation').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const id     = btn.dataset.id;
+            const unit   = btn.dataset.unit;
+            const type   = btn.dataset.type;
+            const tier   = btn.dataset.tier;
+            const status = btn.dataset.status;
+            const opts   = buildTierOptions(tier);
+            openModal('Edit Accommodation', `
+                <form method="POST" action="user_management.php?tab=accommodation" class="form-grid">
+                    ${fieldRow('Unit Name', `<input type="text" name="unit_name" value="${esc(unit)}" readonly>`)}
+                    ${fieldRow('Accommodation Type', `<input type="text" name="accommodation_type" value="${esc(type)}" required>`)}
+                    ${fieldRow('Tier', `<select name="tier_id" required>${opts}</select>`)}
+                    ${fieldRow('Occupancy Status', `<select name="occupancy_status" required>
+                        <option value="Available" ${status === 'Available' ? 'selected' : ''}>Available</option>
+                        <option value="Booked" ${status === 'Booked' ? 'selected' : ''}>Booked</option>
+                        <option value="Under Maintenance" ${status === 'Under Maintenance' ? 'selected' : ''}>Under Maintenance</option>
+                    </select>`)}
+                    <input type="hidden" name="action" value="edit_accommodation">
+                    <input type="hidden" name="accommodation_id" value="${esc(id)}">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary">Save Changes</button>
-                    </form>
-                `;
-                openModal();
-            });
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
         });
+    });
 
-        document.querySelectorAll('.edit-tier').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const statusSelect = <?php echo $supportsStatus['TIER'] ? 'true' : 'false'; ?>;
-                document.getElementById('accountModalTitle').textContent = 'Edit Tier';
-                document.querySelector('.modal-body').innerHTML = `
-                    <form method="POST" action="user_management.php?tab=tier" class="form-row">
-                        <div class="field"><label>Tier Name</label><input type="text" name="tier_name" value="${btn.dataset.name}" required></div>
-                        <div class="field"><label>Description</label><input type="text" name="tier_description" value="${btn.dataset.description}"></div>
-                        <div class="field"><label>Weight Min</label><input type="number" step="0.01" min="0" name="weight_min" value="${btn.dataset.min}" required></div>
-                        <div class="field"><label>Weight Max</label><input type="number" step="0.01" min="0" name="weight_max" value="${btn.dataset.max}" required></div>
-                        <div class="field"><label>Daily Rate</label><div class="field-prefix"><span>₱</span><input type="number" step="0.01" min="0" name="daily_rate" value="${btn.dataset.rate}" required></div></div>
-                        ${statusSelect ? `<div class="field"><label>Status</label><select name="status"><option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option><option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option></select></div>` : ''}
-                        <input type="hidden" name="action" value="edit_tier">
-                        <input type="hidden" name="tier_id" value="${btn.dataset.id}">
+    /* ── EDIT — TIER ────────────────────────────────── */
+    document.querySelectorAll('.edit-tier').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const statusField = supportsStatusTier ? fieldRow('Status', `<select name="status">
+                <option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option>
+                <option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+            </select>`) : '';
+            openModal('Edit Tier', `
+                <form method="POST" action="user_management.php?tab=tier" class="form-grid">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                        ${fieldRow('Tier Name', `<input type="text" name="tier_name" value="${esc(btn.dataset.name)}" required>`)}
+                        ${fieldRow('Description', `<input type="text" name="tier_description" value="${esc(btn.dataset.description)}">`)}
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                        ${fieldRow('Weight Min (kg)', `<input type="number" step="0.01" min="0" name="weight_min" value="${esc(btn.dataset.min)}" required>`)}
+                        ${fieldRow('Weight Max (kg)', `<input type="number" step="0.01" min="0" name="weight_max" value="${esc(btn.dataset.max)}" required>`)}
+                    </div>
+                    ${fieldRow('Daily Rate (₱)', `<div class="field-prefix-wrap"><span class="prefix-symbol">₱</span><input type="number" step="0.01" min="0" name="daily_rate" value="${esc(btn.dataset.rate)}" required></div>`)}
+                    ${statusField}
+                    <input type="hidden" name="action" value="edit_tier">
+                    <input type="hidden" name="tier_id" value="${esc(btn.dataset.id)}">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary">Save Tier</button>
-                    </form>
-                `;
-                openModal();
-            });
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
         });
+    });
 
-        document.querySelectorAll('.edit-category').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const statusSelect = <?php echo $supportsStatus['PET_CATEGORY'] ? 'true' : 'false'; ?>;
-                document.getElementById('accountModalTitle').textContent = 'Edit Pet Category';
-                document.querySelector('.modal-body').innerHTML = `
-                    <form method="POST" action="user_management.php?tab=pet_category" class="form-row">
-                        <div class="field"><label>Category Name</label><input type="text" name="category_name" value="${btn.dataset.name}" required></div>
-                        <div class="field"><label>Species Notes</label><textarea name="species_notes">${btn.dataset.notes}</textarea></div>
-                        ${statusSelect ? `<div class="field"><label>Status</label><select name="status"><option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option><option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option></select></div>` : ''}
-                        <input type="hidden" name="action" value="edit_pet_category">
-                        <input type="hidden" name="category_id" value="${btn.dataset.id}">
+    /* ── EDIT — PET CATEGORY ────────────────────────── */
+    document.querySelectorAll('.edit-category').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const statusField = supportsStatusCat ? fieldRow('Status', `<select name="status">
+                <option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option>
+                <option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+            </select>`) : '';
+            openModal('Edit Pet Category', `
+                <form method="POST" action="user_management.php?tab=pet_category" class="form-grid">
+                    ${fieldRow('Category Name', `<input type="text" name="category_name" value="${esc(btn.dataset.name)}" required>`)}
+                    ${fieldRow('Species Notes', `<textarea name="species_notes">${esc(btn.dataset.notes)}</textarea>`)}
+                    ${statusField}
+                    <input type="hidden" name="action" value="edit_pet_category">
+                    <input type="hidden" name="category_id" value="${esc(btn.dataset.id)}">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary">Save Category</button>
-                    </form>
-                `;
-                openModal();
-            });
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
         });
+    });
 
-        document.querySelectorAll('.edit-service').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const statusSelect = <?php echo $supportsStatus['SERVICE'] ? 'true' : 'false'; ?>;
-                document.getElementById('accountModalTitle').textContent = 'Edit Service';
-                document.querySelector('.modal-body').innerHTML = `
-                    <form method="POST" action="user_management.php?tab=service" class="form-row">
-                        <div class="field"><label>Service Name</label><input type="text" name="service_name" value="${btn.dataset.name}" required></div>
-                        <div class="field"><label>Description</label><textarea name="service_description">${btn.dataset.desc}</textarea></div>
-                        <div class="field"><label>Price</label><div class="field-prefix"><span>₱</span><input type="number" step="0.01" min="0" name="price" value="${btn.dataset.price}" required></div></div>
-                        ${statusSelect ? `<div class="field"><label>Status</label><select name="status"><option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option><option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option></select></div>` : ''}
-                        <input type="hidden" name="action" value="edit_service">
-                        <input type="hidden" name="service_id" value="${btn.dataset.id}">
+    /* ── EDIT — SERVICE ─────────────────────────────── */
+    document.querySelectorAll('.edit-service').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const statusField = supportsStatusSvc ? fieldRow('Status', `<select name="status">
+                <option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option>
+                <option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+            </select>`) : '';
+            openModal('Edit Service', `
+                <form method="POST" action="user_management.php?tab=service" class="form-grid">
+                    ${fieldRow('Service Name', `<input type="text" name="service_name" value="${esc(btn.dataset.name)}" required>`)}
+                    ${fieldRow('Description', `<textarea name="service_description">${esc(btn.dataset.desc)}</textarea>`)}
+                    ${fieldRow('Price (₱)', `<div class="field-prefix-wrap"><span class="prefix-symbol">₱</span><input type="number" step="0.01" min="0" name="price" value="${esc(btn.dataset.price)}" required></div>`)}
+                    ${statusField}
+                    <input type="hidden" name="action" value="edit_service">
+                    <input type="hidden" name="service_id" value="${esc(btn.dataset.id)}">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary">Save Service</button>
-                    </form>
-                `;
-                openModal();
-            });
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
         });
+    });
 
-        inactiveToggleButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                const targetId = button.id === 'toggleTierInactive' ? 'tierInactiveSection' : button.id === 'toggleCategoryInactive' ? 'categoryInactiveSection' : 'serviceInactiveSection';
-                const section = document.getElementById(targetId);
-                if (!section) return;
-                const hidden = section.classList.toggle('hidden');
-                button.textContent = hidden ? 'Hide Inactive' : 'Show Inactive';
-            });
+    /* ── INACTIVE SECTION TOGGLES ───────────────────── */
+    document.querySelectorAll('.show-inactive-btn').forEach(function (button) {
+        button.addEventListener('click', function () {
+            const targetId =
+                button.id === 'toggleTierInactive'     ? 'tierInactiveSection' :
+                button.id === 'toggleCategoryInactive' ? 'categoryInactiveSection' :
+                                                          'serviceInactiveSection';
+            const section = document.getElementById(targetId);
+            if (!section) return;
+            const nowHidden = section.classList.toggle('hidden');
+            button.textContent = nowHidden ? 'Show Inactive' : 'Hide Inactive';
         });
-    </script>
+    });
+
+})();
+</script>
 </body>
 </html>
