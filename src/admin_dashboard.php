@@ -2,35 +2,36 @@
 session_start();
 require_once '../config/db.php';
 
-// RBAC: Check if user is logged in
+// ════════════════════════════════════════════════════════════════
+// RBAC: Admin only
+// ════════════════════════════════════════════════════════════════
 if (!isset($_SESSION['account_id'])) {
     header('Location: ../index.php');
     exit;
 }
 
+$display_name = htmlspecialchars($_SESSION['username'] ?? 'Admin');
+
+// ════════════════════════════════════════════════════════════════
+// FETCH METRICS
+// ════════════════════════════════════════════════════════════════
 try {
-    // Total Bookings (All time)
     $stmt = $pdo->query("SELECT COUNT(*) FROM BOOKING");
     $total_bookings = $stmt->fetchColumn();
 
-    //  Monthly Sales (Sum of Paid Payments)
     $stmt = $pdo->query("SELECT SUM(Total_Amount) FROM PAYMENT WHERE Payment_Status = 'Paid'");
     $monthly_sales = $stmt->fetchColumn() ?: 0;
 
-    //  Occupancy Rate (Booked Rooms / Total Rooms)
-    $stmtTotal = $pdo->query("SELECT COUNT(*) FROM ACCOMMODATION");
+    $stmtTotal  = $pdo->query("SELECT COUNT(*) FROM ACCOMMODATION");
     $total_rooms = $stmtTotal->fetchColumn();
-    
+
     $stmtBooked = $pdo->query("SELECT COUNT(*) FROM ACCOMMODATION WHERE Occupancy_Status = 'Booked'");
     $booked_rooms = $stmtBooked->fetchColumn();
-    
+
     $occupancy_rate = ($total_rooms > 0) ? ($booked_rooms / $total_rooms) * 100 : 0;
 
-    
-    // Booking Status Distribution
     $stmtStatus = $pdo->query("SELECT Booking_Status, COUNT(*) as Status_Count FROM BOOKING GROUP BY Booking_Status");
     $statusData = $stmtStatus->fetchAll(PDO::FETCH_ASSOC);
-    
     $statusLabels = [];
     $statusCounts = [];
     foreach ($statusData as $row) {
@@ -38,151 +39,605 @@ try {
         $statusCounts[] = $row['STATUS_COUNT'];
     }
 
-    //  Revenue Trend (Grouping Paid payments by Check Out Month)
-    $revenueQuery = "SELECT TO_CHAR(B.Check_Out_Date, 'MON YYYY') AS Sale_Month, 
-                            SUM(P.Total_Amount) AS Monthly_Revenue 
-                     FROM PAYMENT P 
-                     JOIN BOOKING B ON P.Booking_ID = B.Booking_ID 
-                     WHERE P.Payment_Status = 'Paid' 
-                     GROUP BY TO_CHAR(B.Check_Out_Date, 'MON YYYY'), TO_CHAR(B.Check_Out_Date, 'YYYY-MM') 
+    $revenueQuery = "SELECT TO_CHAR(B.Check_Out_Date, 'MON YYYY') AS Sale_Month,
+                            SUM(P.Total_Amount) AS Monthly_Revenue
+                     FROM PAYMENT P
+                     JOIN BOOKING B ON P.Booking_ID = B.Booking_ID
+                     WHERE P.Payment_Status = 'Paid'
+                     GROUP BY TO_CHAR(B.Check_Out_Date, 'MON YYYY'), TO_CHAR(B.Check_Out_Date, 'YYYY-MM')
                      ORDER BY TO_CHAR(B.Check_Out_Date, 'YYYY-MM')";
-    $stmtRevenue = $pdo->query($revenueQuery);
-    $revenueData = $stmtRevenue->fetchAll(PDO::FETCH_ASSOC);
-
-    $revenueLabels = [];
+    $stmtRevenue  = $pdo->query($revenueQuery);
+    $revenueData  = $stmtRevenue->fetchAll(PDO::FETCH_ASSOC);
+    $revenueLabels  = [];
     $revenueAmounts = [];
     foreach ($revenueData as $row) {
-        $revenueLabels[] = $row['SALE_MONTH'];
+        $revenueLabels[]  = $row['SALE_MONTH'];
         $revenueAmounts[] = $row['MONTHLY_REVENUE'];
     }
 
 } catch (PDOException $e) {
-    // In production, log error instead of displaying
-    $db_error = "Error loading data: " . $e->getMessage();
+    $db_error = 'Error loading data: ' . $e->getMessage();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - Radog's Pet Hotel</title>
-    <link rel="stylesheet" href="../assets/bootstrap/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link href="../assets/css/custom.css" rel="stylesheet">
+    <title>Admin Dashboard — Radog's Kennel</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        /* ══════════════════════════════════════════════════════
+           DESIGN TOKENS
+        ══════════════════════════════════════════════════════ */
+        :root {
+            --orange:      #FA8112;
+            --orange-dk:   #d96a08;
+            --black:       #222222;
+            --beige:       #FAF3E1;
+            --gold:        #F5E7C6;
+            --white:       #ffffff;
+
+            --radius-card:  20px;
+            --radius-input: 12px;
+            --radius-btn:   12px;
+
+            --shadow-card: 0 24px 70px rgba(15, 23, 42, 0.08);
+            --border-soft: 1px solid rgba(34, 34, 34, 0.08);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--beige);
+            color: var(--black);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        h1, h2, h3, h4, h5 {
+            font-family: 'Bebas Neue', sans-serif;
+            letter-spacing: 0.05em;
+        }
+
+        /* ══════════════════════════════════════════════════════
+           SIDEBAR
+        ══════════════════════════════════════════════════════ */
+        .sidebar {
+            width: 272px;
+            flex-shrink: 0;
+            background-color: var(--black);
+            background-image: repeating-linear-gradient(
+                -55deg,
+                transparent, transparent 18px,
+                rgba(250,129,18,0.04) 18px, rgba(250,129,18,0.04) 19px
+            );
+            display: flex;
+            flex-direction: column;
+            padding: 28px 20px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .sidebar-brand {
+            display: flex; align-items: center; gap: 14px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid rgba(250,129,18,0.15);
+            margin-bottom: 24px;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) both;
+        }
+
+        .sidebar-logo { width: 52px; height: 52px; flex-shrink: 0; filter: drop-shadow(0 0 12px rgba(250,129,18,0.5)); }
+        .sidebar-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+        .sidebar-wordmark-top {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.5rem; color: var(--orange);
+            letter-spacing: 0.04em; line-height: 1;
+            text-shadow: 0 0 20px rgba(250,129,18,0.35);
+        }
+
+        .sidebar-wordmark-sub {
+            font-size: 0.68rem; font-weight: 500;
+            letter-spacing: 0.18em; text-transform: uppercase;
+            color: var(--gold); opacity: 0.8;
+        }
+
+        .sidebar-user {
+            display: flex; align-items: center; gap: 10px;
+            padding: 12px 14px;
+            background: rgba(250,129,18,0.1);
+            border: 1px solid rgba(250,129,18,0.18);
+            border-radius: var(--radius-btn);
+            margin-bottom: 28px;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.05s both;
+        }
+
+        .sidebar-avatar {
+            width: 34px; height: 34px; border-radius: 50%;
+            background: var(--orange);
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1rem; color: var(--white); flex-shrink: 0;
+        }
+
+        .sidebar-user-name { font-size: 0.88rem; font-weight: 600; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sidebar-user-role { font-size: 0.72rem; color: var(--orange); letter-spacing: 0.06em; text-transform: uppercase; }
+
+        .nav-section-label {
+            font-size: 0.68rem; font-weight: 600;
+            letter-spacing: 0.2em; text-transform: uppercase;
+            color: rgba(245,231,198,0.4); padding: 0 4px; margin-bottom: 8px;
+        }
+
+        .nav-list {
+            list-style: none; display: flex; flex-direction: column; gap: 3px;
+            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both;
+        }
+
+        .nav-link {
+            display: flex; align-items: center; gap: 10px;
+            padding: 11px 14px; border-radius: var(--radius-btn);
+            color: rgba(245,231,198,0.7);
+            font-size: 0.92rem; text-decoration: none;
+            transition: background 0.18s, color 0.18s;
+        }
+
+        .nav-link svg { width: 17px; height: 17px; flex-shrink: 0; opacity: 0.8; }
+        .nav-link:hover { background: rgba(250,129,18,0.1); color: var(--white); }
+        .nav-link:hover svg { opacity: 1; }
+        .nav-link.active { background: var(--orange); color: var(--white); font-weight: 600; }
+        .nav-link.active svg { opacity: 1; }
+
+        /* TODO: Remove .nav-link-checkout when Checkout is merged into Schedule page */
+        /* .nav-link-checkout { display: none; } */
+
+        .sidebar-spacer { flex-grow: 1; }
+        .sidebar-divider { height: 1px; background: rgba(250,129,18,0.12); margin: 20px 0; }
+
+        .logout-btn {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 12px 16px; border-radius: var(--radius-btn);
+            background: transparent;
+            border: 1.5px solid rgba(245,231,198,0.15);
+            color: rgba(245,231,198,0.7);
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+            cursor: pointer; text-decoration: none;
+            transition: background 0.18s, color 0.18s, border-color 0.18s;
+        }
+
+        .logout-btn svg { width: 16px; height: 16px; }
+        .logout-btn:hover { background: rgba(250,129,18,0.12); border-color: var(--orange); color: var(--white); }
+
+        /* ══════════════════════════════════════════════════════
+           MAIN CONTENT
+        ══════════════════════════════════════════════════════ */
+        .main-content {
+            flex-grow: 1;
+            padding: 40px 44px;
+            overflow-y: auto;
+            animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both;
+        }
+
+        .page-header { margin-bottom: 32px; }
+
+        .page-eyebrow {
+            font-size: 0.75rem; font-weight: 600;
+            letter-spacing: 0.18em; text-transform: uppercase;
+            color: var(--orange);
+            display: flex; align-items: center; gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .page-eyebrow::before {
+            content: ''; display: block;
+            width: 20px; height: 2px;
+            background: var(--orange); border-radius: 99px;
+        }
+
+        .page-title   { font-size: 2.4rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
+        .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); }
+
+        /* DB error */
+        .alert-warning {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 14px 18px; border-radius: var(--radius-input);
+            background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+            font-size: 0.88rem; margin-bottom: 24px;
+        }
+
+        .alert-warning svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+
+        /* ══════════════════════════════════════════════════════
+           STAT CARDS
+        ══════════════════════════════════════════════════════ */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 28px;
+        }
+
+        .stat-card {
+            background: var(--white);
+            border: var(--border-soft);
+            border-radius: var(--radius-card);
+            padding: 24px 28px;
+            box-shadow: var(--shadow-card);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover { transform: translateY(-2px); }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            border-radius: 4px 0 0 4px;
+        }
+
+        .stat-card.green::before  { background: #22c55e; }
+        .stat-card.blue::before   { background: #3b82f6; }
+        .stat-card.orange::before { background: var(--orange); }
+
+        .stat-icon {
+            width: 40px; height: 40px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 16px;
+        }
+
+        .stat-icon svg { width: 20px; height: 20px; }
+        .stat-icon.green  { background: rgba(34,197,94,0.12);  color: #16a34a; }
+        .stat-icon.blue   { background: rgba(59,130,246,0.12); color: #2563eb; }
+        .stat-icon.orange { background: rgba(250,129,18,0.12); color: var(--orange); }
+
+        .stat-label {
+            font-size: 0.72rem; font-weight: 600;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: rgba(34,34,34,0.45); margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 2.6rem; color: var(--black); line-height: 1;
+        }
+
+        .stat-sub {
+            font-size: 0.8rem; color: rgba(34,34,34,0.4);
+            margin-top: 4px;
+        }
+
+        /* ══════════════════════════════════════════════════════
+           CHARTS ROW
+        ══════════════════════════════════════════════════════ */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 5fr 7fr;
+            gap: 20px;
+            margin-bottom: 28px;
+        }
+
+        .panel {
+            background: var(--white);
+            border: var(--border-soft);
+            border-radius: var(--radius-card);
+            padding: 28px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .panel-header {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 20px; padding-bottom: 16px;
+            border-bottom: 1px solid rgba(34,34,34,0.06);
+        }
+
+        .panel-icon {
+            width: 36px; height: 36px; border-radius: 10px;
+            background: rgba(250,129,18,0.1);
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+
+        .panel-icon svg { width: 18px; height: 18px; color: var(--orange); }
+
+        .panel-heading {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.2rem; color: var(--black); letter-spacing: 0.05em;
+        }
+
+        .chart-wrap {
+            position: relative;
+            height: 240px;
+            width: 100%;
+        }
+
+        /* ══════════════════════════════════════════════════════
+           QUICK ACTIONS
+        ══════════════════════════════════════════════════════ */
+        .actions-panel { margin-bottom: 0; }
+
+        .actions-grid {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 13px 24px; border: none; border-radius: var(--radius-btn);
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 0.95rem; letter-spacing: 0.12em;
+            cursor: pointer; text-decoration: none;
+            transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
+        }
+
+        .btn svg { width: 16px; height: 16px; }
+        .btn:hover { transform: translateY(-1px); }
+
+        .btn-primary { background: var(--black); color: var(--white); }
+        .btn-primary:hover { background: var(--orange); box-shadow: 0 6px 20px rgba(250,129,18,0.3); }
+
+        .btn-ghost {
+            background: transparent; color: var(--black);
+            border: 1.5px solid rgba(34,34,34,0.18);
+        }
+
+        .btn-ghost:hover { background: rgba(34,34,34,0.04); border-color: var(--orange); }
+
+        /* ══════════════════════════════════════════════════════
+           ANIMATIONS & RESPONSIVE
+        ══════════════════════════════════════════════════════ */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 1100px) {
+            .charts-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 900px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: static; }
+            .main-content { padding: 24px 20px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .actions-grid { flex-direction: column; }
+            .btn { justify-content: center; }
+        }
+    </style>
 </head>
 <body>
-<div class="dashboard-shell d-flex min-vh-100">
-    <aside class="sidebar d-flex flex-column p-4" style="background-color: #F5E7C6;">
-        <div class="sidebar-brand mb-5 text-center">
-            <img src="../img/radog_logo.png" alt="Radog Logo" class="img-fluid mb-3" style="max-height: 90px; width: auto;">
-            <div>
-                <h2 class="h5 mb-1" style="color: #222222;">Radog's Kennel</h2>
-                <p class="mb-1 text-muted-custom small"><?php echo htmlspecialchars($_SESSION['username'] ?? 'User'); ?></p>
-                <p class="mb-0 text-muted-custom small"><?php echo htmlspecialchars($_SESSION['group_name'] ?? 'Role'); ?></p>
-            </div>
+
+<!-- ══════════════════════════════════════════════════════
+     SIDEBAR
+══════════════════════════════════════════════════════ -->
+<aside class="sidebar">
+
+    <div class="sidebar-brand">
+        <div class="sidebar-logo">
+            <img src="../img/radog_logo.png" alt="Radog's Kennel">
         </div>
-        <nav class="nav nav-pills flex-column mb-auto sidebar-nav">
-            <a href="admin_dashboard.php" class="nav-link d-flex align-items-center mb-2 active" style="background-color: #FA8112; color: white;"><i class="bi bi-house-door-fill me-3"></i> Dashboard</a>
-            <a href="encode_reservation.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-calendar-check me-3"></i> Schedule</a>
-            <a href="calendar.php" class="nav-link d-flex align-items-center mb-2" ><i class="bi bi-calendar3 me-3"></i> Calendar</a>
-            <a href="owner.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-people me-3"></i> Owners</a>
-            <a href="pets.php" class="nav-link d-flex align-items-center mb-2"><i class="bi bi-paw me-3"></i> Pets</a>
-            <a href="checkout.php" class="nav-link d-flex align-items-center mb-2 " ><i class="bi bi-cash-stack me-3"></i> Checkout/Payments</a>        
- 
-    <a href="user_management.php" class="nav-link d-flex align-items-center mb-2">
-        <i class="bi bi-gear-fill me-3"></i> User Management
+        <div>
+            <div class="sidebar-wordmark-top">Radog's Kennel</div>
+            <div class="sidebar-wordmark-sub">Pet Hotel Management</div>
+        </div>
+    </div>
+
+    <div class="sidebar-user">
+        <div class="sidebar-avatar">
+            <?php echo strtoupper(substr($_SESSION['username'] ?? 'A', 0, 1)); ?>
+        </div>
+        <div>
+            <div class="sidebar-user-name"><?php echo $display_name; ?></div>
+            <div class="sidebar-user-role">Administrator</div>
+        </div>
+    </div>
+
+    <div class="nav-section-label">Navigation</div>
+    <ul class="nav-list">
+
+        <li><a href="admin_dashboard.php" class="nav-link active">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6"/></svg>
+            Dashboard
+        </a></li>
+        <li><a href="encode_reservation.php" class="nav-link">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            Schedule
+        </a></li>
+        <li><a href="calendar.php" class="nav-link">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10h18"/></svg>
+            Calendar
+        </a></li>
+        <li><a href="owner.php" class="nav-link">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Owners
+        </a></li>
+        <li><a href="pets.php" class="nav-link">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M14 10h.01M10 10h.01M9 16s1 1 3 1 3-1 3-1M21 12c0 4.97-4.03 9-9 9S3 16.97 3 12 7.03 3 12 3s9 4.03 9 9z"/></svg>
+            Pets
+        </a></li>
+
+        <!--
+        TODO: Remove this nav item once Checkout is merged into the Schedule page.
+        At that point, delete the <li> below entirely.
+        -->
+        <li><a href="checkout.php" class="nav-link nav-link-checkout">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            Checkout / Payments
+        </a></li>
+
+        <li><a href="user_management.php" class="nav-link">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            User Management
+        </a></li>
+
+    </ul>
+
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-divider"></div>
+
+    <a href="../logout.php" class="logout-btn">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+        </svg>
+        Logout
     </a>
 
-        </nav>
-        <div class="mt-auto"> 
-            <a href="../logout.php" class="btn btn-link logout-link d-flex align-items-center gap-2 text-decoration-none" style="color: #222222;">
-                <i class="bi bi-box-arrow-right"></i> Logout
+</aside>
+
+<!-- ══════════════════════════════════════════════════════
+     MAIN CONTENT
+══════════════════════════════════════════════════════ -->
+<main class="main-content">
+
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="page-eyebrow">Overview</div>
+        <h1 class="page-title">Admin Dashboard</h1>
+        <p class="page-subtitle">Real-time kennel performance overview — welcome back, <?php echo $display_name; ?>.</p>
+    </div>
+
+    <!-- DB error -->
+    <?php if (isset($db_error)): ?>
+        <div class="alert-warning">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+            </svg>
+            <?php echo htmlspecialchars($db_error); ?>
+        </div>
+    <?php endif; ?>
+
+    <!-- ── Stat Cards ── -->
+    <div class="stats-grid">
+
+        <div class="stat-card green">
+            <div class="stat-icon green">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div class="stat-label">Total Sales (Paid)</div>
+            <div class="stat-value" style="font-size:2rem;">₱<?php echo number_format($monthly_sales, 2); ?></div>
+            <div class="stat-sub">All-time paid payments</div>
+        </div>
+
+        <div class="stat-card blue">
+            <div class="stat-icon blue">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6"/>
+                </svg>
+            </div>
+            <div class="stat-label">Occupancy Rate</div>
+            <div class="stat-value"><?php echo number_format($occupancy_rate, 1); ?>%</div>
+            <div class="stat-sub"><?php echo $booked_rooms; ?> of <?php echo $total_rooms; ?> units booked</div>
+        </div>
+
+        <div class="stat-card orange">
+            <div class="stat-icon orange">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="stat-label">Total Bookings</div>
+            <div class="stat-value"><?php echo $total_bookings; ?></div>
+            <div class="stat-sub">All-time reservations</div>
+        </div>
+
+    </div>
+
+    <!-- ── Charts ── -->
+    <div class="charts-grid">
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/>
+                    </svg>
+                </div>
+                <span class="panel-heading">Booking Status</span>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="statusChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
+                    </svg>
+                </div>
+                <span class="panel-heading">Revenue Trend</span>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="revenueChart"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ── Quick Actions ── -->
+    <div class="panel actions-panel">
+        <div class="panel-header">
+            <div class="panel-icon">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+            </div>
+            <span class="panel-heading">Quick Actions</span>
+        </div>
+        <div class="actions-grid">
+            <a href="encode_reservation.php" class="btn btn-primary">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                Schedule New Appointment
+            </a>
+            <a href="pets.php" class="btn btn-ghost">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                Search Pet Profile
+            </a>
+            <!--
+            TODO: Remove the Checkout button below once Checkout is merged into Schedule page.
+            At that point, delete the entire <a> tag below.
+            -->
+            <a href="checkout.php" class="btn btn-ghost">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+                </svg>
+                Checkout / Payments
             </a>
         </div>
-    </aside>
+    </div>
 
-    <main class="main-content flex-grow-1 p-4 p-md-5" style="background-color: #FAF3E1;">
-        <div class="container-fluid">
-            <div class="mb-4">  
-                <h1 class="h3 mb-1">Admin Dashboard</h1>
-                <p class="text-muted-custom">Real-time kennel performance overview.</p>
-            </div>
+</main>
 
-            <?php if(isset($db_error)): ?>
-                <div class="alert alert-warning py-2 small"><?php echo $db_error; ?></div>
-            <?php endif; ?>
-
-            <div class="row g-4 mb-4">
-                <div class="col-md-4">
-                    <div class="bg-white shadow-sm border-0 p-4 h-100 rounded-3 border-start border-4 border-success">
-                        <h3 class="h6 text-muted text-uppercase small mb-2">Total Sales (Paid)</h3>
-                        <p class="fs-2 fw-bold mb-0">₱<?php echo number_format($monthly_sales, 2); ?></p>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="bg-white shadow-sm border-0 p-4 h-100 rounded-3 border-start border-4 border-primary">
-                        <h3 class="h6 text-muted text-uppercase small mb-2">Occupancy Rate</h3>
-                        <p class="fs-2 fw-bold mb-0"><?php echo number_format($occupancy_rate, 1); ?>%</p>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="bg-white shadow-sm border-0 p-4 h-100 rounded-3 border-start border-4 border-warning">
-                        <h3 class="h6 text-muted text-uppercase small mb-2">Total Bookings</h3>
-                        <p class="fs-2 fw-bold mb-0"><?php echo $total_bookings; ?></p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row g-4 mb-4">
-                <div class="col-md-5">
-                    <div class="bg-white shadow-sm p-4 rounded-3 border-0 h-100">
-                        <h2 class="h6 mb-4 fw-bold text-muted text-uppercase">Booking Status Distribution</h2>
-                        <div style="position: relative; height:250px; width:100%">
-                            <canvas id="statusChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-7">
-                    <div class="bg-white shadow-sm p-4 rounded-3 border-0 h-100">
-                        <h2 class="h6 mb-4 fw-bold text-muted text-uppercase">Revenue Trend</h2>
-                        <div style="position: relative; height:250px; width:100%">
-                            <canvas id="revenueChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row g-4">
-                <div class="col-md-12">
-                    <div class="bg-white shadow-sm p-4 rounded-3 border-0">
-                        <h2 class="h5 mb-4 fw-bold">Quick Actions</h2>
-                        <div class="d-flex gap-3">
-                            <a href="encode_reservation.php" class="btn text-white py-2 px-4" style="background-color: #FA8112;">
-                                <i class="bi bi-plus-lg me-2"></i> Schedule New Appointment
-                            </a>
-                            <a href="pets.php" class="btn btn-outline-dark py-2 px-4">
-                                <i class="bi bi-search me-2"></i> Search Pet Profile
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </main>
-</div>
-
-<script src="../assets/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // ----------------------------------------
-    // 1. Booking Status Chart (Doughnut)
-    // ----------------------------------------
-    const statusCtx = document.getElementById('statusChart').getContext('2d');
+document.addEventListener('DOMContentLoaded', function () {
+
+    /* ── Doughnut: Booking Status ─────────────────── */
+    const statusCtx    = document.getElementById('statusChart').getContext('2d');
     const statusLabels = <?php echo json_encode($statusLabels); ?>;
-    const statusData = <?php echo json_encode($statusCounts); ?>;
+    const statusData   = <?php echo json_encode($statusCounts); ?>;
 
     new Chart(statusCtx, {
         type: 'doughnut',
@@ -190,30 +645,34 @@ document.addEventListener('DOMContentLoaded', function() {
             labels: statusLabels,
             datasets: [{
                 data: statusData,
-                backgroundColor: [
-                    '#FA8112', // Radog's Orange
-                    '#198754', // Bootstrap Success
-                    '#ffc107', // Bootstrap Warning
-                    '#dc3545'  // Bootstrap Danger
-                ],
-                borderWidth: 1
+                backgroundColor: ['#FA8112', '#22c55e', '#f59e0b', '#ef4444'],
+                borderWidth: 0,
+                hoverOffset: 6
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            cutout: '68%',
             plugins: {
-                legend: { position: 'right' }
+                legend: {
+                    position: 'right',
+                    labels: {
+                        font: { family: 'DM Sans', size: 12 },
+                        color: '#222222',
+                        padding: 16,
+                        usePointStyle: true,
+                        pointStyleWidth: 8,
+                    }
+                }
             }
         }
     });
 
-    // ----------------------------------------
-    // 2. Revenue Trend Chart (Line)
-    // ----------------------------------------
-    const revenueCtx = document.getElementById('revenueChart').getContext('2d');
-    const revenueLabels = <?php echo json_encode($revenueLabels); ?>;
-    const revenueData = <?php echo json_encode($revenueAmounts); ?>;
+    /* ── Line: Revenue Trend ──────────────────────── */
+    const revenueCtx     = document.getElementById('revenueChart').getContext('2d');
+    const revenueLabels  = <?php echo json_encode($revenueLabels); ?>;
+    const revenueAmounts = <?php echo json_encode($revenueAmounts); ?>;
 
     new Chart(revenueCtx, {
         type: 'line',
@@ -221,29 +680,42 @@ document.addEventListener('DOMContentLoaded', function() {
             labels: revenueLabels,
             datasets: [{
                 label: 'Monthly Revenue (₱)',
-                data: revenueData,
+                data: revenueAmounts,
                 borderColor: '#FA8112',
-                backgroundColor: 'rgba(250, 129, 18, 0.2)',
+                backgroundColor: 'rgba(250,129,18,0.08)',
                 borderWidth: 3,
-                tension: 0.3,
-                fill: true
+                tension: 0.35,
+                fill: true,
+                pointBackgroundColor: '#FA8112',
+                pointRadius: 5,
+                pointHoverRadius: 7
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { family: 'DM Sans', size: 11 }, color: 'rgba(34,34,34,0.5)' }
+                },
                 y: {
                     beginAtZero: true,
+                    grid: { color: 'rgba(34,34,34,0.06)' },
                     ticks: {
-                        callback: function(value) {
-                            return '₱' + value;
-                        }
+                        font: { family: 'DM Sans', size: 11 },
+                        color: 'rgba(34,34,34,0.5)',
+                        callback: v => '₱' + Number(v).toLocaleString()
                     }
                 }
             },
             plugins: {
-                legend: { display: false }
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ' ₱' + Number(ctx.raw).toLocaleString()
+                    }
+                }
             }
         }
     });

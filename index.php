@@ -662,11 +662,6 @@ if (isset($_SESSION['account_id'], $_SESSION['role'])) {
 
             </form>
 
-            <div class="login-footer">
-                <div class="footer-line"></div>
-                <span class="footer-note">Role detected automatically upon sign in</span>
-                <div class="footer-line"></div>
-            </div>
 
         </div>
     </main>

@@ -63,9 +63,11 @@ CREATE TABLE TIER (
     Tier_Description VARCHAR2(255),
     Weight_Min NUMBER(10, 2) NOT NULL,
     Weight_Max NUMBER(10, 2) NOT NULL,
+    Daily_Rate NUMBER(10,2) NOT NULL,
     CONSTRAINT chk_tier_name CHECK (Tier_Name IN ('Small', 'Medium', 'Large', 'Giant')),
     CONSTRAINT chk_tier_w_min CHECK (Weight_Min >= 0.00),
-    CONSTRAINT chk_tier_w_max CHECK (Weight_Max > Weight_Min)
+    CONSTRAINT chk_tier_w_max CHECK (Weight_Max > Weight_Min),
+    CONSTRAINT chk_acc_rate CHECK (Daily_Rate >= 0.00)
 );
 
 -- 8. PET TABLE
@@ -116,11 +118,9 @@ CREATE TABLE ACCOMMODATION (
     Accommodation_ID NUMBER(10) PRIMARY KEY,
     Unit_Name VARCHAR2(50) UNIQUE NOT NULL,
     Accommodation_Type VARCHAR2(50) NOT NULL,
-    Daily_Cost NUMBER(10,2) NOT NULL,
     Occupancy_Status VARCHAR2(20) NOT NULL,
     Tier_ID NUMBER(10) NOT NULL,
     CONSTRAINT fk_acc_tier FOREIGN KEY (Tier_ID) REFERENCES TIER(Tier_ID),
-    CONSTRAINT chk_acc_cost CHECK (Daily_Cost >= 0.00),
     CONSTRAINT chk_occ_status CHECK (Occupancy_Status IN ('Available', 'Booked', 'Under Maintenance'))
 );
 
@@ -181,7 +181,7 @@ CREATE TABLE SERVICE_DETAILS (
 
 COMMIT;
 
-SQL Codes for Initial and/or Sample Table Records Insertion
+-- SQL Codes for Initial and/or Sample Table Records Insertion
 -- =========================================================
 -- RADOG'S KENNEL PET HOTEL MANAGEMENT SYSTEM
 -- SCRIPT B: DML (SAMPLE RECORDS INSERTION)
@@ -230,14 +230,14 @@ INSERT INTO PET_CATEGORY (Category_ID, Category_Name, Species_Notes)
 VALUES (2, 'Cat', 'All recognized cat breeds');
 
 -- 7. TIER TABLE
-INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max) 
-VALUES (1, 'Small', '< 10 kg', 0.00, 10.99);
-INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max) 
-VALUES (2, 'Medium', '11-26 kg', 11.00, 26.99);
-INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max) 
-VALUES (3, 'Large', '27-45 kg', 27.00, 45.99);
-INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max) 
-VALUES (4, 'Giant', '> 45 kg', 46.00, 150.00);
+INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max, Daily_Rate) 
+VALUES (1, 'Small', '< 10 kg', 0.00, 10.99, 500.00);
+INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max, Daily_Rate) 
+VALUES (2, 'Medium', '11-26 kg', 11.00, 26.99, 750.00);
+INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max, Daily_Rate) 
+VALUES (3, 'Large', '27-45 kg', 27.00, 45.99, 1000.00);
+INSERT INTO TIER (Tier_ID, Tier_Name, Tier_Description, Weight_Min, Weight_Max, Daily_Rate) 
+VALUES (4, 'Giant', '> 45 kg', 46.00, 150.00, 1500.00);
 
 -- 8. PET TABLE (Updated with Status for Soft Delete)
 INSERT INTO PET (Pet_ID, Pet_Name, Sex, Weight, Feeding_Time, Feeding_Portion, Behavioral_Notes, Status, Owner_ID, Category_ID, Tier_ID) 
@@ -266,12 +266,12 @@ INSERT INTO DOCUMENT_DETAILS (Pet_ID, Doc_ID, Verification_Status, Date_Verified
 VALUES (4, 2, 'Approved', TO_DATE('2026-04-10', 'YYYY-MM-DD'));
 
 -- 11. ACCOMMODATION TABLE
-INSERT INTO ACCOMMODATION (Accommodation_ID, Unit_Name, Accommodation_Type, Daily_Cost, Occupancy_Status, Tier_ID) 
-VALUES (1, 'CAGE-S1', 'Stainless Cage', 500.00, 'Available', 1);
-INSERT INTO ACCOMMODATION (Accommodation_ID, Unit_Name, Accommodation_Type, Daily_Cost, Occupancy_Status, Tier_ID) 
-VALUES (2, 'ROOM-M1', 'Airconditioned Room', 750.00, 'Available', 2);
-INSERT INTO ACCOMMODATION (Accommodation_ID, Unit_Name, Accommodation_Type, Daily_Cost, Occupancy_Status, Tier_ID) 
-VALUES (3, 'ROOM-L1', 'Airconditioned Room', 1000.00, 'Booked', 3);
+INSERT INTO ACCOMMODATION (Accommodation_ID, Unit_Name, Accommodation_Type, Occupancy_Status, Tier_ID) 
+VALUES (1, 'CAGE-S1', 'Stainless Cage', 'Available', 1);
+INSERT INTO ACCOMMODATION (Accommodation_ID, Unit_Name, Accommodation_Type, Occupancy_Status, Tier_ID) 
+VALUES (2, 'ROOM-M1', 'Airconditioned Room', 'Available', 2);
+INSERT INTO ACCOMMODATION (Accommodation_ID, Unit_Name, Accommodation_Type, Occupancy_Status, Tier_ID) 
+VALUES (3, 'ROOM-L1', 'Airconditioned Room', 'Booked', 3);
 
 -- 12. SERVICE TABLE
 INSERT INTO SERVICE (Service_ID, Service_Name, Service_Description, Price) 
