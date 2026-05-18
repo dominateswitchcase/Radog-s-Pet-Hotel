@@ -7,16 +7,52 @@ require_once '../config/rbac-helpers.php';
 requireLogin();
 $role = $_SESSION['role'];
 
-// 1. Strict Variable Initialization (Fixes the Undefined Variable Warning)
+// 1. Strict Variable Initialization
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $category_filter = isset($_GET['category']) ? $_GET['category'] : 'all';
+
+// Handle Edit POST (modal form submission)
+$edit_success = '';
+$edit_error   = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_pet_id'])) {
+    $edit_id    = (int)$_POST['edit_pet_id'];
+    $pet_name   = trim($_POST['pet_name'] ?? '');
+    $sex        = trim($_POST['sex'] ?? '');
+    $weight     = trim($_POST['weight'] ?? '');
+    $feeding_time    = trim($_POST['feeding_time'] ?? '');
+    $feeding_portion = trim($_POST['feeding_portion'] ?? '');
+    $behavioral_notes = trim($_POST['behavioral_notes'] ?? '');
+
+    if ($pet_name === '') {
+        $edit_error = 'Pet name is required.';
+    } else {
+        try {
+            $upd = $pdo->prepare("UPDATE PET SET PET_NAME = :name, SEX = :sex, WEIGHT = :weight,
+                FEEDING_TIME = :ft, FEEDING_PORTION = :fp, BEHAVIORAL_NOTES = :bn
+                WHERE PET_ID = :id");
+            $upd->execute([
+                'name'   => $pet_name,
+                'sex'    => $sex ?: null,
+                'weight' => $weight !== '' ? (float)$weight : null,
+                'ft'     => $feeding_time ?: null,
+                'fp'     => $feeding_portion ?: null,
+                'bn'     => $behavioral_notes ?: null,
+                'id'     => $edit_id,
+            ]);
+            $edit_success = 'Pet profile updated successfully.';
+        } catch (PDOException $e) {
+            $edit_error = 'Update failed: ' . $e->getMessage();
+        }
+    }
+}
 
 // Fetch all categories dynamically for the dropdown
 $cat_stmt = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME FROM PET_CATEGORY ORDER BY CATEGORY_ID ASC");
 $all_categories = $cat_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Base Query
-$queryStr = "SELECT P.PET_ID, P.PET_NAME, C.CATEGORY_NAME, O.FIRST_NAME, O.LAST_NAME 
+$queryStr = "SELECT P.PET_ID, P.PET_NAME, P.SEX, P.WEIGHT, P.FEEDING_TIME, P.FEEDING_PORTION, P.BEHAVIORAL_NOTES,
+             C.CATEGORY_NAME, O.FIRST_NAME, O.LAST_NAME
              FROM PET P
              JOIN OWNER O ON P.OWNER_ID = O.OWNER_ID
              JOIN PET_CATEGORY C ON P.CATEGORY_ID = C.CATEGORY_ID
@@ -30,7 +66,7 @@ if ($search !== '') {
     $params['search'] = '%' . $search . '%';
 }
 
-// 3. Strict Numeric Validation (Fixes ORA-01722: Invalid Number)
+// 3. Strict Numeric Validation
 if ($category_filter !== 'all' && is_numeric($category_filter)) {
     $queryStr .= " AND P.CATEGORY_ID = :category";
     $params['category'] = (int)$category_filter;
@@ -44,6 +80,8 @@ try {
 } catch (PDOException $e) {
     die("Database Query Error: " . $e->getMessage());
 }
+
+$pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -51,6 +89,8 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pet Profiles – Radog's Pet Hotel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
     <style>
         /* ── CSS Variables ───────────────────────────────────── */
@@ -77,6 +117,7 @@ try {
             min-height: 100vh;
             color: var(--black);
         }
+        h1, h2, h3, h4, h5 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.05em; }
         a { text-decoration: none; }
 
         /* ── Animation ───────────────────────────────────────── */
@@ -85,24 +126,24 @@ try {
             to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* ── Sidebar ─────────────────────────────────────────── */
+        /* ══════════════════════════════════════════════════════
+           SIDEBAR
+        ══════════════════════════════════════════════════════ */
         .sidebar {
             width: 272px;
-            min-height: 100vh;
+            flex-shrink: 0;
             background-color: var(--black);
             background-image: repeating-linear-gradient(
                 -55deg, transparent, transparent 18px,
                 rgba(250,129,18,0.04) 18px, rgba(250,129,18,0.04) 19px
             );
-            padding: 28px 20px;
             display: flex;
             flex-direction: column;
-            gap: 0;
+            padding: 28px 20px;
             position: sticky;
             top: 0;
             height: 100vh;
             overflow-y: auto;
-            flex-shrink: 0;
         }
 
         /* Brand */
@@ -110,30 +151,31 @@ try {
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 28px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(250,129,18,0.15);
+            margin-bottom: 24px;
             animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
         }
-        .sidebar-brand img {
+        .sidebar-logo img {
             width: 52px;
             height: 52px;
             object-fit: contain;
-            filter: drop-shadow(0 0 8px rgba(250,129,18,0.5));
-            flex-shrink: 0;
+            filter: drop-shadow(0 0 12px rgba(250,129,18,0.5));
         }
-        .brand-text { display: flex; flex-direction: column; }
-        .brand-name {
-            font-family: 'Bebas Neue', cursive;
+        .sidebar-wordmark-top {
+            font-family: 'Bebas Neue', sans-serif;
             font-size: 1.5rem;
             color: var(--orange);
             line-height: 1;
             letter-spacing: 0.04em;
+            text-shadow: 0 0 18px rgba(250,129,18,0.4);
         }
-        .brand-sub {
+        .sidebar-wordmark-sub {
             font-size: 0.68rem;
             letter-spacing: 0.18em;
             text-transform: uppercase;
             color: var(--gold);
-            opacity: 0.75;
+            opacity: 0.8;
             margin-top: 3px;
         }
 
@@ -142,51 +184,51 @@ try {
             background: rgba(250,129,18,0.1);
             border: 1px solid rgba(250,129,18,0.18);
             border-radius: 12px;
-            padding: 10px 14px;
+            padding: 12px 14px;
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
             animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
         }
-        .avatar-circle {
-            width: 36px;
-            height: 36px;
+        .sidebar-avatar {
+            width: 34px;
+            height: 34px;
             background: var(--orange);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-family: 'Bebas Neue', cursive;
-            font-size: 1.1rem;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1rem;
             color: var(--white);
             flex-shrink: 0;
         }
-        .user-info { display: flex; flex-direction: column; min-width: 0; }
-        .user-name {
-            font-size: 0.85rem;
+        .sidebar-user-name {
+            font-size: 0.88rem;
             font-weight: 600;
             color: var(--white);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .user-role {
-            font-size: 0.68rem;
-            letter-spacing: 0.14em;
+        .sidebar-user-role {
+            font-size: 0.72rem;
+            letter-spacing: 0.06em;
             text-transform: uppercase;
             color: var(--orange);
-            margin-top: 1px;
+            margin-top: 2px;
         }
 
         /* Nav */
         .nav-section-label {
             font-size: 0.68rem;
+            font-weight: 600;
             letter-spacing: 0.2em;
             text-transform: uppercase;
             color: rgba(245,231,198,0.4);
+            padding: 0 4px;
             margin-bottom: 8px;
-            padding-left: 4px;
         }
         .nav-list {
             list-style: none;
@@ -196,50 +238,44 @@ try {
             flex-grow: 1;
             animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
         }
-        .nav-list a {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 14px;
-            border-radius: 10px;
-            color: rgba(245,231,198,0.7);
-            font-family: 'Bebas Neue', cursive;
-            font-size: 0.95rem;
-            letter-spacing: 0.1em;
-            transition: background 0.18s, color 0.18s;
-        }
-        .nav-list a:hover {
-            background: rgba(250,129,18,0.1);
-            color: var(--white);
-        }
-        .nav-list a.active {
-            background: var(--orange);
-            color: var(--white);
-            font-weight: 600;
-        }
-        .nav-list svg { width: 18px; height: 18px; flex-shrink: 0; }
-
-        /* Logout */
-        .sidebar-footer { margin-top: auto; padding-top: 20px; }
-        .btn-logout {
+        .nav-link {
             display: flex;
             align-items: center;
             gap: 10px;
-            width: 100%;
-            padding: 10px 14px;
-            border-radius: 10px;
+            padding: 11px 14px;
+            border-radius: 12px;
+            color: rgba(245,231,198,0.7);
+            font-size: 0.92rem;
+            text-decoration: none;
+            transition: background 0.18s, color 0.18s;
+        }
+        .nav-link svg { width: 17px; height: 17px; opacity: 0.8; flex-shrink: 0; }
+        .nav-link:hover { background: rgba(250,129,18,0.1); color: var(--white); }
+        .nav-link.active { background: var(--orange); color: var(--white); font-weight: 600; }
+        .nav-link.active svg { opacity: 1; }
+
+        /* Logout */
+        .sidebar-footer { margin-top: auto; padding-top: 20px; }
+        .logout-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 12px;
             background: transparent;
             border: 1.5px solid rgba(245,231,198,0.15);
             color: rgba(245,231,198,0.7);
-            font-family: 'Bebas Neue', cursive;
-            font-size: 0.95rem;
-            letter-spacing: 0.1em;
-            cursor: pointer;
-            transition: border-color 0.18s, color 0.18s;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: background 0.18s, color 0.18s, border-color 0.18s;
         }
-        .btn-logout:hover { border-color: var(--orange); color: var(--white); }
+        .logout-btn:hover { background: rgba(250,129,18,0.12); border-color: var(--orange); color: var(--white); }
+        .logout-btn svg { width: 16px; height: 16px; }
 
-        /* ── Main Content ────────────────────────────────────── */
+        /* ══════════════════════════════════════════════════════
+           MAIN CONTENT
+        ══════════════════════════════════════════════════════ */
         .main-content {
             flex-grow: 1;
             padding: 40px 44px;
@@ -257,7 +293,7 @@ try {
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 6px;
+            margin-bottom: 10px;
         }
         .page-eyebrow::before {
             content: '';
@@ -265,21 +301,33 @@ try {
             width: 20px;
             height: 2px;
             background: var(--orange);
-            border-radius: 2px;
+            border-radius: 99px;
         }
         .page-title {
-            font-family: 'Bebas Neue', cursive;
             font-size: 2.4rem;
             color: var(--black);
-            letter-spacing: 0.04em;
             line-height: 1;
             margin-bottom: 6px;
         }
         .page-subtitle {
-            font-size: 0.9rem;
-            color: rgba(34,34,34,0.5);
+            font-size: 0.95rem;
+            color: rgba(34,34,34,0.55);
             margin-bottom: 32px;
         }
+
+        /* ── Alerts ──────────────────────────────────────────── */
+        .alert {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+        }
+        .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+        .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
 
         /* ── Filter Bar ──────────────────────────────────────── */
         .filter-bar {
@@ -314,6 +362,7 @@ try {
             font-size: 0.9rem;
             color: var(--black);
             transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+            appearance: none;
         }
         .search-wrap input:focus {
             outline: none;
@@ -334,6 +383,7 @@ try {
             cursor: pointer;
             transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
             min-width: 160px;
+            appearance: none;
         }
         select.filter-select:focus {
             outline: none;
@@ -342,46 +392,49 @@ try {
             background: var(--white);
         }
 
-        /* Buttons */
+        /* ── Buttons ─────────────────────────────────────────── */
         .btn {
-            font-family: 'Bebas Neue', cursive;
-            letter-spacing: 0.12em;
-            border-radius: var(--radius-btn);
-            padding: 12px 22px;
-            border: none;
-            cursor: pointer;
             display: inline-flex;
             align-items: center;
             gap: 8px;
+            padding: 12px 22px;
+            border: none;
+            border-radius: var(--radius-btn);
+            font-family: 'Bebas Neue', sans-serif;
             font-size: 0.95rem;
+            letter-spacing: 0.12em;
+            cursor: pointer;
+            text-decoration: none;
             transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
             white-space: nowrap;
         }
         .btn:hover { transform: translateY(-1px); }
+        .btn svg { width: 16px; height: 16px; }
         .btn-primary { background: var(--black); color: var(--white); }
-        .btn-primary:hover { background: var(--orange); }
-        .btn-danger { background: var(--orange); color: var(--white); }
-        .btn-danger:hover { background: var(--orange-dk); }
+        .btn-primary:hover { background: var(--orange); box-shadow: 0 6px 20px rgba(250,129,18,0.3); }
+        .btn-danger  { background: var(--orange); color: var(--white); }
+        .btn-danger:hover  { background: var(--orange-dk); box-shadow: 0 6px 20px rgba(250,129,18,0.35); }
         .btn-ghost {
             background: transparent;
-            border: 1.5px solid rgba(34,34,34,0.18);
             color: var(--black);
+            border: 1.5px solid rgba(34,34,34,0.18);
         }
-        .btn-ghost:hover { border-color: var(--orange); color: var(--orange); }
+        .btn-ghost:hover { background: rgba(34,34,34,0.04); border-color: var(--orange); }
         .btn-sm { padding: 8px 14px; font-size: 0.82rem; }
 
-        /* ── Table Panel ─────────────────────────────────────── */
+        /* ── Panel / Table ───────────────────────────────────── */
         .panel {
             background: var(--white);
             border: var(--border-soft);
             border-radius: var(--radius-card);
             box-shadow: var(--shadow-card);
             overflow: hidden;
+            margin-bottom: 20px;
         }
         .panel-header {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
             padding: 22px 28px 18px;
             border-bottom: 1px solid rgba(34,34,34,0.06);
         }
@@ -397,42 +450,29 @@ try {
         }
         .panel-icon svg { width: 18px; height: 18px; color: var(--orange); }
         .panel-heading {
-            font-family: 'Bebas Neue', cursive;
-            font-size: 1.2rem;
-            letter-spacing: 0.06em;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.3rem;
             color: var(--black);
+            letter-spacing: 0.05em;
         }
 
         /* Table */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        thead tr {
-            background: rgba(250,129,18,0.04);
-        }
-        thead th {
-            padding: 14px 24px;
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table thead tr { background: rgba(250,129,18,0.04); }
+        .data-table th {
+            padding: 12px 20px;
             font-size: 0.72rem;
             font-weight: 600;
             letter-spacing: 0.12em;
             text-transform: uppercase;
             color: rgba(34,34,34,0.45);
             text-align: left;
-            border: none;
+            border-bottom: 1px solid rgba(34,34,34,0.06);
         }
-        thead th.center { text-align: center; }
-        tbody tr {
-            border-top: 1px solid rgba(34,34,34,0.06);
-            transition: background 0.15s;
-        }
-        tbody tr:hover { background: rgba(250,129,18,0.03); }
-        tbody td {
-            padding: 14px 24px;
-            font-size: 0.9rem;
-            vertical-align: middle;
-            border: none;
-        }
+        .data-table th.center { text-align: center; }
+        .data-table tbody tr { border-bottom: 1px solid rgba(34,34,34,0.05); transition: background 0.15s; }
+        .data-table tbody tr:hover { background: rgba(250,129,18,0.03); }
+        .data-table td { padding: 16px 20px; font-size: 0.92rem; vertical-align: middle; }
         .td-center { text-align: center; }
         .pet-name { font-weight: 600; color: var(--black); }
 
@@ -441,18 +481,12 @@ try {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 12px;
+            padding: 5px 12px;
             border-radius: 99px;
             font-size: 0.78rem;
             font-weight: 600;
-            letter-spacing: 0.06em;
         }
-        .badge-dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
+        .badge-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
         .badge-dog  { background: rgba(250,129,18,0.1); color: #c05f00; }
         .badge-dog  .badge-dot { background: #FA8112; }
         .badge-cat  { background: rgba(99,102,241,0.1); color: #4338ca; }
@@ -460,17 +494,113 @@ try {
         .badge-other { background: rgba(34,34,34,0.07); color: #4a3f33; }
         .badge-other .badge-dot { background: #999; }
 
-        /* Action buttons group */
+        /* Actions */
         .actions { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
 
         /* Empty state */
-        .empty-state {
-            padding: 64px 24px;
-            text-align: center;
-            color: rgba(34,34,34,0.35);
-        }
+        .empty-state { padding: 64px 24px; text-align: center; color: rgba(34,34,34,0.35); }
         .empty-state svg { width: 48px; height: 48px; margin-bottom: 14px; opacity: 0.3; }
         .empty-state p { font-size: 0.92rem; }
+
+        /* ══════════════════════════════════════════════════════
+           MODAL
+        ══════════════════════════════════════════════════════ */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(34,34,34,0.55);
+            backdrop-filter: blur(3px);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: var(--white);
+            border-radius: 20px;
+            width: min(100%, 520px);
+            box-shadow: 0 32px 80px rgba(15,23,42,0.18);
+            overflow: hidden;
+            animation: fadeUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 22px 28px;
+            background-color: var(--black);
+            background-image: repeating-linear-gradient(
+                -55deg, transparent, transparent 18px,
+                rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
+            );
+        }
+        .modal-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.3rem;
+            color: var(--white);
+            letter-spacing: 0.06em;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: rgba(245,231,198,0.6);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.18s, color 0.18s;
+        }
+        .modal-close:hover { background: rgba(250,129,18,0.2); color: var(--white); }
+        .modal-close svg { width: 18px; height: 18px; }
+        .modal-body { padding: 28px; }
+        .modal-foot {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 20px 28px;
+            border-top: 1px solid rgba(34,34,34,0.07);
+        }
+
+        /* Form fields inside modal */
+        .field-group { margin-bottom: 18px; }
+        .field-label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #4a3f33;
+            margin-bottom: 8px;
+        }
+        .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .modal-body input,
+        .modal-body select,
+        .modal-body textarea {
+            width: 100%;
+            padding: 13px 16px;
+            border: 1.5px solid #e2d9ce;
+            border-radius: var(--radius-input);
+            background: var(--beige);
+            color: var(--black);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            appearance: none;
+        }
+        .modal-body input:focus,
+        .modal-body select:focus,
+        .modal-body textarea:focus {
+            border-color: var(--orange);
+            box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
+            outline: none;
+            background: var(--white);
+        }
+        .modal-body textarea { resize: vertical; min-height: 80px; }
 
         /* ── Responsive ──────────────────────────────────────── */
         @media (max-width: 900px) {
@@ -479,6 +609,7 @@ try {
             .main-content { padding: 24px 20px; }
             .filter-bar { flex-direction: column; align-items: stretch; }
             .search-wrap { max-width: 100%; }
+            .field-row { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -486,26 +617,28 @@ try {
 
 <!-- ══════════════════════════════════════════════════════
      SIDEBAR
-═══════════════════════════════════════════════════════ -->
+══════════════════════════════════════════════════════ -->
 <aside class="sidebar">
 
     <!-- Brand -->
     <div class="sidebar-brand">
-        <img src="../img/radog_logo.png" alt="Radog Logo">
-        <div class="brand-text">
-            <span class="brand-name">Radog's</span>
-            <span class="brand-sub">Kennel Pet Hotel</span>
+        <div class="sidebar-logo">
+            <img src="../img/radog_logo.png" alt="Radog's Kennel">
+        </div>
+        <div>
+            <div class="sidebar-wordmark-top">Radog's Kennel</div>
+            <div class="sidebar-wordmark-sub">Pet Hotel Management</div>
         </div>
     </div>
 
     <!-- User badge -->
     <div class="sidebar-user">
-        <div class="avatar-circle">
-            <?php echo strtoupper(substr($_SESSION['username'] ?? 'S', 0, 1)); ?>
+        <div class="sidebar-avatar">
+            <?php echo strtoupper(substr($_SESSION['username'] ?? 'U', 0, 1)); ?>
         </div>
-        <div class="user-info">
-            <span class="user-name"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Staff'); ?></span>
-            <span class="user-role"><?php echo htmlspecialchars($role ?? 'Staff'); ?></span>
+        <div>
+            <div class="sidebar-user-name"><?php echo htmlspecialchars($_SESSION['username'] ?? 'User'); ?></div>
+            <div class="sidebar-user-role"><?php echo htmlspecialchars($role); ?></div>
         </div>
     </div>
 
@@ -513,44 +646,48 @@ try {
     <p class="nav-section-label">Main Menu</p>
     <ul class="nav-list">
         <li>
-            <a href="admin_dashboard.php">
+            <?php if (isAdmin()): ?>
+            <a href="admin_dashboard.php" class="nav-link">
+            <?php else: ?>
+            <a href="staff_dashboard.php" class="nav-link">
+            <?php endif; ?>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                 Dashboard
             </a>
         </li>
         <li>
-            <a href="encode_reservation.php">
+            <a href="encode_reservation.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg>
                 Schedule
             </a>
         </li>
         <li>
-            <a href="calendar.php">
+            <a href="calendar.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Calendar
             </a>
         </li>
         <li>
-            <a href="owner.php">
+            <a href="owner.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 Owners
             </a>
         </li>
         <li>
-            <a href="pets.php" class="active">
+            <a href="pets.php" class="nav-link active">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg>
                 Pets
             </a>
         </li>
         <li>
-            <a href="checkout.php">
+            <a href="checkout.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                 Checkout / Payments
             </a>
         </li>
         <?php if (isAdmin()): ?>
         <li>
-            <a href="user_management.php">
+            <a href="user_management.php" class="nav-link">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 User Management
             </a>
@@ -560,8 +697,8 @@ try {
 
     <!-- Logout -->
     <div class="sidebar-footer">
-        <a href="../index.php" class="btn-logout">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <a href="../logout.php" class="logout-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Logout
         </a>
     </div>
@@ -569,13 +706,27 @@ try {
 
 <!-- ══════════════════════════════════════════════════════
      MAIN CONTENT
-═══════════════════════════════════════════════════════ -->
+══════════════════════════════════════════════════════ -->
 <main class="main-content">
 
     <!-- Page header -->
     <div class="page-eyebrow">Pet Registry</div>
     <h1 class="page-title">Pet Profiles</h1>
     <p class="page-subtitle">Centralized pet registry and historical data</p>
+
+    <!-- Alerts (from edit POST) -->
+    <?php if ($edit_success): ?>
+    <div class="alert alert-success">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <?php echo htmlspecialchars($edit_success); ?>
+    </div>
+    <?php endif; ?>
+    <?php if ($edit_error): ?>
+    <div class="alert alert-error">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <?php echo htmlspecialchars($edit_error); ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Filter bar -->
     <form action="pets.php" method="GET">
@@ -595,7 +746,7 @@ try {
             </select>
 
             <button type="submit" class="btn btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 Search
             </button>
         </div>
@@ -610,7 +761,7 @@ try {
             <span class="panel-heading">Registered Pets</span>
         </div>
 
-        <table>
+        <table class="data-table">
             <thead>
                 <tr>
                     <th>Pet Name</th>
@@ -620,7 +771,17 @@ try {
                 </tr>
             </thead>
             <tbody>
-                <?php while ($row = $stmt->fetch(PDO::FETCH_ASSOC)): ?>
+                <?php if (empty($pets)): ?>
+                <tr>
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <p>No pet records found matching your criteria.</p>
+                        </div>
+                    </td>
+                </tr>
+                <?php else: ?>
+                <?php foreach ($pets as $row): ?>
                 <tr>
                     <td class="pet-name"><?php echo htmlspecialchars($row['PET_NAME']); ?></td>
                     <td>
@@ -638,49 +799,163 @@ try {
                     <td><?php echo htmlspecialchars($row['FIRST_NAME'] . ' ' . $row['LAST_NAME']); ?></td>
                     <td class="td-center">
                         <div class="actions">
+                            <!-- Details: always visible -->
                             <a href="pet_profile.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 Details
                             </a>
 
                             <?php if (isAdmin()): ?>
+                                <!-- Admin: Delete + Export -->
                                 <a href="pet_delete.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Delete this pet profile?');">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                                     Delete
                                 </a>
                                 <a href="pet_export.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                     Export
                                 </a>
                             <?php else: ?>
-                                <a href="pet_edit.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                <!-- Staff: Edit (modal) + Log Vaccine -->
+                                <button type="button" class="btn btn-sm btn-ghost"
+                                    onclick="openEditModal(
+                                        <?php echo $row['PET_ID']; ?>,
+                                        <?php echo json_encode($row['PET_NAME']); ?>,
+                                        <?php echo json_encode($row['SEX'] ?? ''); ?>,
+                                        <?php echo json_encode($row['WEIGHT'] ?? ''); ?>,
+                                        <?php echo json_encode($row['FEEDING_TIME'] ?? ''); ?>,
+                                        <?php echo json_encode($row['FEEDING_PORTION'] ?? ''); ?>,
+                                        <?php echo json_encode($row['BEHAVIORAL_NOTES'] ?? ''); ?>
+                                    )">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                     Edit
-                                </a>
+                                </button>
                                 <a href="pet_log_vaccine.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
                                     Log Vaccine
                                 </a>
                             <?php endif; ?>
                         </div>
                     </td>
                 </tr>
-                <?php endwhile; ?>
-
-                <?php if ($stmt->rowCount() === 0): ?>
-                <tr>
-                    <td colspan="4">
-                        <div class="empty-state">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            <p>No pet records found matching your criteria.</p>
-                        </div>
-                    </td>
-                </tr>
+                <?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
         </table>
     </div>
 
 </main>
+
+<!-- ══════════════════════════════════════════════════════
+     EDIT PET MODAL
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="editPetModal">
+    <div class="modal-box">
+        <div class="modal-head">
+            <span class="modal-title">Edit Pet Profile</span>
+            <button class="modal-close" onclick="closeEditModal()" aria-label="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+
+        <form method="POST" action="pets.php<?php echo ($search || $category_filter !== 'all') ? '?' . http_build_query(['search' => $search, 'category' => $category_filter]) : ''; ?>">
+            <div class="modal-body">
+                <!-- Hidden pet ID -->
+                <input type="hidden" name="edit_pet_id" id="modal_pet_id">
+
+                <div class="field-row">
+                    <div class="field-group">
+                        <label class="field-label" for="modal_pet_name">Pet Name <span style="color:var(--orange)">*</span></label>
+                        <input type="text" name="pet_name" id="modal_pet_name" placeholder="e.g. Buddy" required>
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label" for="modal_sex">Sex</label>
+                        <select name="sex" id="modal_sex">
+                            <option value="">— Select —</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field-group">
+                        <label class="field-label" for="modal_weight">Weight (kg)</label>
+                        <input type="number" name="weight" id="modal_weight" step="0.01" min="0.01" placeholder="e.g. 12.50">
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label" for="modal_feeding_time">Feeding Time</label>
+                        <input type="text" name="feeding_time" id="modal_feeding_time" placeholder="e.g. BID">
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label" for="modal_feeding_portion">Feeding Portion</label>
+                    <input type="text" name="feeding_portion" id="modal_feeding_portion" placeholder="e.g. 2 cups morning, 1 cup evening">
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label" for="modal_behavioral_notes">Behavioral Notes</label>
+                    <textarea name="behavioral_notes" id="modal_behavioral_notes" placeholder="Any important behavioral notes…"></textarea>
+                </div>
+            </div>
+
+            <div class="modal-foot">
+                <button type="button" class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // ── Edit Modal ────────────────────────────────────────
+    function openEditModal(id, name, sex, weight, feedingTime, feedingPortion, behavioralNotes) {
+        document.getElementById('modal_pet_id').value          = id;
+        document.getElementById('modal_pet_name').value        = name;
+        document.getElementById('modal_sex').value             = sex;
+        document.getElementById('modal_weight').value          = weight;
+        document.getElementById('modal_feeding_time').value    = feedingTime;
+        document.getElementById('modal_feeding_portion').value = feedingPortion;
+        document.getElementById('modal_behavioral_notes').value = behavioralNotes;
+        document.getElementById('editPetModal').classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeEditModal() {
+        document.getElementById('editPetModal').classList.remove('open');
+        document.body.style.overflow = '';
+    }
+
+    // Close on overlay click
+    document.getElementById('editPetModal').addEventListener('click', function(e) {
+        if (e.target === this) closeEditModal();
+    });
+
+    // Close on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeEditModal();
+    });
+
+    // Re-open modal if there was a validation error on POST
+    <?php if ($edit_error): ?>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Restore form values from POST data so the user can fix and resubmit
+        document.getElementById('modal_pet_id').value           = <?php echo json_encode($_POST['edit_pet_id'] ?? ''); ?>;
+        document.getElementById('modal_pet_name').value         = <?php echo json_encode($_POST['pet_name'] ?? ''); ?>;
+        document.getElementById('modal_sex').value              = <?php echo json_encode($_POST['sex'] ?? ''); ?>;
+        document.getElementById('modal_weight').value           = <?php echo json_encode($_POST['weight'] ?? ''); ?>;
+        document.getElementById('modal_feeding_time').value     = <?php echo json_encode($_POST['feeding_time'] ?? ''); ?>;
+        document.getElementById('modal_feeding_portion').value  = <?php echo json_encode($_POST['feeding_portion'] ?? ''); ?>;
+        document.getElementById('modal_behavioral_notes').value = <?php echo json_encode($_POST['behavioral_notes'] ?? ''); ?>;
+        document.getElementById('editPetModal').classList.add('open');
+        document.body.style.overflow = 'hidden';
+    });
+    <?php endif; ?>
+</script>
+
 </body>
 </html>
