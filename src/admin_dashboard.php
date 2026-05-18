@@ -98,7 +98,7 @@ try {
 
         </nav>
         <div class="mt-auto"> 
-            <a href="../index.php" class="btn btn-link logout-link d-flex align-items-center gap-2 text-decoration-none" style="color: #222222;">
+            <a href="../logout.php" class="btn btn-link logout-link d-flex align-items-center gap-2 text-decoration-none" style="color: #222222;">
                 <i class="bi bi-box-arrow-right"></i> Logout
             </a>
         </div>

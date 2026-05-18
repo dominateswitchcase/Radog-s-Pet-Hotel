@@ -119,7 +119,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <?php endif; ?>
         </nav>
         <div class="mt-auto">
-            <a href="../index.php" class="btn btn-link logout-link d-flex align-items-center gap-2">
+            <a href="../logout.php" class="btn btn-link logout-link d-flex align-items-center gap-2">
                 <i class="bi bi-box-arrow-right"></i> Logout
             </a>
         </div>
@@ -261,3 +261,4 @@ document.getElementById('addPetBtn').addEventListener('click', function() {
 </script>
 </body>
 </html> -->
+
