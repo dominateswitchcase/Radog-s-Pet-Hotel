@@ -32,8 +32,8 @@ function columnExists(PDO $pdo, $table, $column) {
 function getNextId(PDO $pdo, $table, $column) {
     $table = strtoupper($table);
     $column = strtoupper($column);
-    $allowedTables = ['ACCOMMODATION', 'TIER', 'PET_CATEGORY', 'SERVICE'];
-    $allowedColumns = ['ACCOMMODATION_ID', 'TIER_ID', 'CATEGORY_ID', 'SERVICE_ID'];
+    $allowedTables = ['ACCOMMODATION', 'TIER', 'PET_CATEGORY', 'SERVICE', 'USER_ACCOUNT'];
+    $allowedColumns = ['ACCOMMODATION_ID', 'TIER_ID', 'CATEGORY_ID', 'SERVICE_ID', 'ACCOUNT_ID'];
     if (!in_array($table, $allowedTables, true) || !in_array($column, $allowedColumns, true)) {
         throw new InvalidArgumentException('Invalid table or column name for getNextId().');
     }
@@ -47,7 +47,7 @@ $supportsStatus = [
     'SERVICE'      => columnExists($pdo, 'SERVICE', 'STATUS'),
 ];
 
-$allowedTabs = ['accommodation', 'tier', 'pet_category', 'service', 'account'];
+$allowedTabs = ['accommodation', 'tier', 'pet_category', 'service', 'employee', 'account'];
 $activeTab   = isset($_GET['tab']) && in_array($_GET['tab'], $allowedTabs, true) ? $_GET['tab'] : 'accommodation';
 $success     = isset($_GET['success']) && $_GET['success'] === '1';
 $formErrors  = [
@@ -55,6 +55,7 @@ $formErrors  = [
     'tier'          => '',
     'pet_category'  => '',
     'service'       => '',
+    'employee'      => '',
     'account'       => '',
     'password'      => '',
 ];
@@ -258,6 +259,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
+        } elseif ($action === 'add_employee') {
+            $empId = filter_var($_POST['employee_id'] ?? '', FILTER_VALIDATE_INT);
+            $empName = trim($_POST['employee_name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $password = $_POST['password'] ?? '';
+            $groupId = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
+            $status = trim($_POST['account_status'] ?? 'Active');
+
+            if (!$empId || $empName === '' || $username === '' || $password === '' || !$groupId) {
+                $formErrors['employee'] = 'Please complete all required employee fields.';
+            } else {
+                $stmt1 = $pdo->prepare('SELECT COUNT(*) FROM EMPLOYEE WHERE EMPLOYEE_ID = :id');
+                $stmt1->execute(['id' => $empId]);
+                $chk1 = (int) $stmt1->fetchColumn();
+
+                $stmt2 = $pdo->prepare('SELECT COUNT(*) FROM USER_ACCOUNT WHERE USERNAME = :usr');
+                $stmt2->execute(['usr' => $username]);
+                $chk2 = (int) $stmt2->fetchColumn();
+
+                if ($chk1 > 0) {
+                    $formErrors['employee'] = 'That Employee ID already exists.';
+                } elseif ($chk2 > 0) {
+                    $formErrors['employee'] = 'That Username is already taken.';
+                } else {
+                    try {
+                        $pdo->beginTransaction();
+                        $newAccId = getNextId($pdo, 'USER_ACCOUNT', 'ACCOUNT_ID');
+                        $hash = password_hash($password, PASSWORD_BCRYPT);
+                        
+                        $insertEmp = $pdo->prepare('INSERT INTO EMPLOYEE (EMPLOYEE_ID, EMPLOYEE_USERNAME, PASSWORD_HASH) VALUES (:id, :name, :hash)');
+                        $insertEmp->execute(['id' => $empId, 'name' => $empName, 'hash' => $hash]);
+
+                        $insertAcc = $pdo->prepare('INSERT INTO USER_ACCOUNT (ACCOUNT_ID, USERNAME, ACCOUNT_STATUS, PASSWORD_HASH, EMPLOYEE_ID, USER_GROUP_ID) VALUES (:acc_id, :usr, :status, :hash, :emp_id, :grp_id)');
+                        $insertAcc->execute([
+                            'acc_id' => $newAccId,
+                            'usr' => $username,
+                            'status' => $status,
+                            'hash' => $hash,
+                            'emp_id' => $empId,
+                            'grp_id' => $groupId
+                        ]);
+                        
+                        $pdo->commit();
+                        header('Location: user_management.php?tab=employee&success=1');
+                        exit();
+                    } catch (Exception $e) {
+                        $pdo->rollBack();
+                        throw $e;
+                    }
+                }
+            }
+        } elseif ($action === 'edit_employee') {
+            $accId = filter_var($_POST['account_id'] ?? '', FILTER_VALIDATE_INT);
+            $groupId = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
+            $status = trim($_POST['account_status'] ?? '');
+
+            if (!$accId || !$groupId || !in_array($status, ['Active', 'Inactive'], true)) {
+                $formErrors['employee'] = 'Invalid parameters for employee update.';
+            } else {
+                $update = $pdo->prepare('UPDATE USER_ACCOUNT SET USER_GROUP_ID = :grp_id, ACCOUNT_STATUS = :status WHERE ACCOUNT_ID = :acc_id');
+                $update->execute(['grp_id' => $groupId, 'status' => $status, 'acc_id' => $accId]);
+                header('Location: user_management.php?tab=employee&success=1');
+                exit();
+            }
         } elseif ($action === 'update_username') {
             $username  = trim($_POST['username'] ?? '');
             $accountId = $_SESSION['account_id'];
@@ -317,6 +382,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $formErrors['pet_category'] = $message;
         } elseif (in_array($action, ['add_service', 'edit_service', 'deactivate_service'], true)) {
             $formErrors['service'] = $message;
+        } elseif (in_array($action, ['add_employee', 'edit_employee'], true)) {
+            $formErrors['employee'] = $message;
         } elseif ($action === 'update_username') {
             $formErrors['account'] = $message;
         } elseif ($action === 'change_password') {
@@ -343,6 +410,14 @@ $inactiveServices   = $supportsStatus['SERVICE'] ? $pdo->query("SELECT SERVICE_I
 $accommodations     = $pdo->query(
     'SELECT A.ACCOMMODATION_ID, A.UNIT_NAME, A.ACCOMMODATION_TYPE, A.OCCUPANCY_STATUS, A.TIER_ID, T.TIER_NAME FROM ACCOMMODATION A JOIN TIER T ON A.TIER_ID = T.TIER_ID ORDER BY A.ACCOMMODATION_ID'
 )->fetchAll(PDO::FETCH_ASSOC);
+
+$employeesList      = $pdo->query('
+    SELECT E.EMPLOYEE_ID, E.EMPLOYEE_USERNAME, UA.ACCOUNT_ID, UA.USERNAME, UA.ACCOUNT_STATUS, UG.GROUP_NAME, UG.USER_GROUP_ID
+    FROM EMPLOYEE E
+    JOIN USER_ACCOUNT UA ON E.EMPLOYEE_ID = UA.EMPLOYEE_ID
+    JOIN USER_GROUP UG ON UA.USER_GROUP_ID = UG.USER_GROUP_ID
+    ORDER BY E.EMPLOYEE_ID
+')->fetchAll(PDO::FETCH_ASSOC);
 
 $countsStmt        = $pdo->query('SELECT TIER_ID, COUNT(*) AS CNT FROM ACCOMMODATION GROUP BY TIER_ID');
 $accommodationCounts = [];
@@ -564,6 +639,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             display: flex;
             flex-direction: column;
             animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both;
+            padding: 40px 44px;
         }
 
         /* ── TOP BAR ─────────────────────────────────────── */
@@ -571,7 +647,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 24px 44px 0 44px;
+            padding: 0 0 24px 0;
         }
 
         .page-eyebrow {
@@ -638,7 +714,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 
         /* ── FOLDER TAB BAR ──────────────────────────────── */
         .folder-tab-area {
-            padding: 28px 44px 0 44px;
+            padding: 0;
         }
 
         .folder-tabs {
@@ -925,7 +1001,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         
         .account-info-card {
-            /* FIXED: Use background property with multiple values to ensure layers are retained */
             background: 
                 repeating-linear-gradient(
                     -55deg, transparent, transparent 18px,
@@ -1025,14 +1100,10 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         .modal-body .form-grid { gap: 18px; }
 
         /* ── RESPONSIVE ──────────────────────────────────── */
-        @media (max-width: 1100px) {
-            .top-bar, .folder-tab-area { padding-left: 24px; padding-right: 24px; }
-        }
         @media (max-width: 900px) {
             body { flex-direction: column; }
             .sidebar { width: 100%; height: auto; position: static; }
-            .top-bar, .folder-tab-area { padding: 20px 16px 0 16px; }
-            .folder-content-wrap { padding: 20px 16px; border-radius: 0 0 16px 16px; }
+            .main-content { padding: 24px 20px; }
             .form-grid-2 { grid-template-columns: 1fr; }
             .account-grid { grid-template-columns: 1fr; }
             .account-info-card { grid-column: span 1; }
@@ -1045,7 +1116,9 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 
 <aside class="sidebar">
     <div class="sidebar-brand">
-        <div class="sidebar-logo-placeholder">RK</div>
+        <div class="sidebar-logo">
+            <img src="../img/radog_logo.png" alt="Radog's Kennel">
+        </div>
         <div>
             <div class="sidebar-wordmark-top">Radog's Kennel</div>
             <div class="sidebar-wordmark-sub">Pet Hotel Management</div>
@@ -1062,10 +1135,17 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 
     <div class="nav-section-label">Navigation</div>
     <nav class="nav-list">
-        <a href="admin_dashboard.php" class="nav-link">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-18v7h6V2h-6z"/></svg>
-            Dashboard
-        </a>
+        <?php if (isAdmin()): ?>
+            <a href="admin_dashboard.php" class="nav-link">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-18v7h6V2h-6z"/></svg>
+                Dashboard
+            </a>
+        <?php else: ?>
+            <a href="staff_dashboard.php" class="nav-link">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-18v7h6V2h-6z"/></svg>
+                Dashboard
+            </a>
+        <?php endif; ?>
         <a href="encode_reservation.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11zm0-13H5V6h14v1z"/></svg>
             Schedule
@@ -1086,16 +1166,18 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg>
             Checkout / Payments
         </a>
+        <?php if (isAdmin()): ?>
         <a href="user_management.php" class="nav-link active">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
             User Management
         </a>
+        <?php endif; ?>
     </nav>
 
     <div class="sidebar-spacer"></div>
 
     <a href="../logout.php" class="logout-btn">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16 13v-2H7V8l-5 4 5 4v-3h9zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 13v-2H7V8l-5 4 5 4v-3h9zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
         Logout
     </a>
 </aside>
@@ -1106,7 +1188,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         <div>
             <div class="page-eyebrow">Administration</div>
             <h1 class="page-title">User Management</h1>
-            <p class="page-subtitle">Manage accommodations, tiers, pet categories, services, and your account settings.</p>
+            <p class="page-subtitle">Manage accommodations, tiers, pet categories, services, employees, and your account settings.</p>
         </div>
         <div class="top-bar-right">
             <div class="profile-circle" id="profileCircleBtn" title="My Account" role="button" tabindex="0" aria-label="Go to My Account">
@@ -1122,12 +1204,13 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             <button type="button" class="folder-tab" data-tab="tier" role="tab"><span>Tier</span></button>
             <button type="button" class="folder-tab" data-tab="pet_category" role="tab"><span>Pet Category</span></button>
             <button type="button" class="folder-tab" data-tab="service" role="tab"><span>Service</span></button>
+            <button type="button" class="folder-tab" data-tab="employee" role="tab"><span>Employees</span></button>
             <button type="button" class="folder-tab" data-tab="account" role="tab"><span>My Account</span></button>
         </div>
 
         <div class="folder-content-wrap">
 
-            <div id="panel-accommodation" class="tab-panel">
+            <div id="panel-accommodation" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'accommodation' && $success): ?>
                     <div class="alert alert-success">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
@@ -1560,6 +1643,90 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <div id="panel-employee" class="tab-panel" style="display:none;">
+                <?php if ($activeTab === 'employee' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Employee record updated successfully.
+                    </div>
+                <?php endif; ?>
+                <?php if ($formErrors['employee']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['employee']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-header-left">
+                            <div class="panel-icon">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                            </div>
+                            <div>
+                                <div class="panel-heading">Employee Management</div>
+                                <div class="panel-subtext"><?php echo count($employeesList); ?> user account(s) active</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <button type="button" class="btn btn-primary" id="openAddEmployee">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                                Create New User
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Employee ID</th>
+                                    <th>Employee Name</th>
+                                    <th>Username</th>
+                                    <th>User Group</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($employeesList as $emp): ?>
+                                <tr>
+                                    <td><?php echo escape($emp['EMPLOYEE_ID']); ?></td>
+                                    <td><strong><?php echo escape($emp['EMPLOYEE_USERNAME']); ?></strong></td>
+                                    <td><?php echo escape($emp['USERNAME']); ?></td>
+                                    <td><?php echo escape($emp['GROUP_NAME']); ?></td>
+                                    <td>
+                                        <?php
+                                            $empBadge = $emp['ACCOUNT_STATUS'] === 'Active' ? 'badge-available' : 'badge-maintenance';
+                                            $empDot = $emp['ACCOUNT_STATUS'] === 'Active' ? 'dot-available' : 'dot-maintenance';
+                                        ?>
+                                        <span class="status-badge <?php echo $empBadge; ?>">
+                                            <span class="status-dot <?php echo $empDot; ?>"></span>
+                                            <?php echo escape($emp['ACCOUNT_STATUS']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="td-actions">
+                                            <button type="button" class="btn btn-ghost btn-sm edit-employee"
+                                                data-acc-id="<?php echo escape($emp['ACCOUNT_ID']); ?>"
+                                                data-emp-name="<?php echo escape($emp['EMPLOYEE_USERNAME']); ?>"
+                                                data-username="<?php echo escape($emp['USERNAME']); ?>"
+                                                data-group-id="<?php echo escape($emp['USER_GROUP_ID']); ?>"
+                                                data-status="<?php echo escape($emp['ACCOUNT_STATUS']); ?>">
+                                                Edit
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($employeesList)): ?>
+                                <tr><td colspan="6" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No employee records found.</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div id="panel-account" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'account' && $success): ?>
                     <div class="alert alert-success">
@@ -1853,6 +2020,39 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         `);
     });
 
+    /* ── ADD — EMPLOYEE ─────────────────────────────── */
+    const openAddEmployeeBtn = document.getElementById('openAddEmployee');
+    if (openAddEmployeeBtn) {
+        openAddEmployeeBtn.addEventListener('click', function () {
+            openModal('New User Registration', `
+                <form method="POST" action="user_management.php?tab=employee" class="form-grid">
+                    ${fieldRow('Employee ID', '<input type="number" name="employee_id" placeholder="e.g. 1001" required>')}
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                        ${fieldRow('Employee Name (Full Name)', '<input type="text" name="employee_name" placeholder="Full Name" required>')}
+                        ${fieldRow('Login Username', '<input type="text" name="username" placeholder="Username" required>')}
+                    </div>
+                    ${fieldRow('Password', '<input type="password" name="password" required>')}
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                        ${fieldRow('User Group', `<select name="user_group_id" required>
+                            <option value="1">Administrator</option>
+                            <option value="2">Kennel Staff</option>
+                        </select>`)}
+                        ${fieldRow('Account Status', `<select name="account_status" required>
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>`)}
+                    </div>
+                    <input type="hidden" name="action" value="add_employee">
+                    <input type="hidden" name="tab" value="employee">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                        <button type="submit" class="btn btn-primary">Add User</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
+        });
+    }
+
     /* ── EDIT — ACCOMMODATION ───────────────────────── */
     document.querySelectorAll('.edit-accommodation').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -1953,6 +2153,42 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                     <input type="hidden" name="service_id" value="${esc(btn.dataset.id)}">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary">Save Service</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
+        });
+    });
+
+    /* ── EDIT — EMPLOYEE ────────────────────────────── */
+    document.querySelectorAll('.edit-employee').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const accId = btn.dataset.accId;
+            const empName = btn.dataset.empName;
+            const accName = btn.dataset.username;
+            const grpId = btn.dataset.groupId;
+            const status = btn.dataset.status;
+
+            openModal('Edit User', `
+                <form method="POST" action="user_management.php?tab=employee" class="form-grid">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                        ${fieldRow('Employee Name', `<input type="text" value="${esc(empName)}" readonly>`)}
+                        ${fieldRow('Login Username', `<input type="text" value="${esc(accName)}" readonly>`)}
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                        ${fieldRow('User Group', `<select name="user_group_id" required>
+                            <option value="1" ${grpId === '1' ? 'selected' : ''}>Administrator</option>
+                            <option value="2" ${grpId === '2' ? 'selected' : ''}>Kennel Staff</option>
+                        </select>`)}
+                        ${fieldRow('Account Status', `<select name="account_status" required>
+                            <option value="Active" ${status === 'Active' ? 'selected' : ''}>Active</option>
+                            <option value="Inactive" ${status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+                        </select>`)}
+                    </div>
+                    <input type="hidden" name="action" value="edit_employee">
+                    <input type="hidden" name="account_id" value="${esc(accId)}">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
                         <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
                     </div>
                 </form>
