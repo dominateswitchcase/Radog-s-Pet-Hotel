@@ -541,9 +541,6 @@ function verif_badge($status) {
 </head>
 <body>
 
-<!-- ══════════════════════════════════════════════════════
-     TOP BAR
-══════════════════════════════════════════════════════ -->
 <header class="top-bar">
     <div class="top-bar-brand">
         <img src="../img/radog_logo.png" alt="Radog's Kennel">
@@ -557,12 +554,8 @@ function verif_badge($status) {
     </div>
 </header>
 
-<!-- ══════════════════════════════════════════════════════
-     PAGE CONTENT
-══════════════════════════════════════════════════════ -->
 <div class="page-wrapper">
 
-    <!-- ── Hero Header ────────────────────────────────── -->
     <div class="profile-hero">
         <div class="hero-avatar">
             <?php if (strtolower($pet['CATEGORY_NAME']) === 'cat'): ?>
@@ -585,10 +578,8 @@ function verif_badge($status) {
         </div>
     </div>
 
-    <!-- ── Row 1: Basic Info · Feeding · Behavioral ───── -->
     <div class="cards-grid">
 
-        <!-- Basic Information -->
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
@@ -619,7 +610,6 @@ function verif_badge($status) {
             </div>
         </div>
 
-        <!-- Feeding Instructions -->
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
@@ -637,7 +627,6 @@ function verif_badge($status) {
             </div>
         </div>
 
-        <!-- Behavioral Notes -->
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
@@ -648,13 +637,8 @@ function verif_badge($status) {
             <textarea class="notes-textarea" rows="5" readonly><?php echo htmlspecialchars($pet['BEHAVIORAL_NOTES'] ?? 'No behavioral notes recorded.'); ?></textarea>
         </div>
 
-    </div><!-- /cards-grid -->
+    </div><div class="cards-grid-2">
 
-
-    <!-- ── Row 2: Health Requirements · Documents ─────── -->
-    <div class="cards-grid-2">
-
-        <!-- Health & Requirements Status -->
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
@@ -672,7 +656,6 @@ function verif_badge($status) {
                 </div>
                 <?php else: ?>
 
-                <!-- Ocular Exam -->
                 <div class="req-item <?php echo $ocular_passed ? 'passed' : 'failed'; ?>">
                     <div class="req-check <?php echo $ocular_passed ? 'pass' : 'fail'; ?>">
                         <?php if ($ocular_passed): ?>
@@ -689,7 +672,6 @@ function verif_badge($status) {
                     </div>
                 </div>
 
-                <!-- Vaccination / Vet Card -->
                 <div class="req-item <?php echo $vetcard_ok ? 'passed' : 'failed'; ?>">
                     <div class="req-check <?php echo $vetcard_ok ? 'pass' : 'fail'; ?>">
                         <?php if ($vetcard_ok): ?>
@@ -706,7 +688,6 @@ function verif_badge($status) {
                     </div>
                 </div>
 
-                <!-- NexGard -->
                 <div class="req-item <?php echo $nexgard_ok ? 'passed' : 'failed'; ?>">
                     <div class="req-check <?php echo $nexgard_ok ? 'pass' : 'fail'; ?>">
                         <?php if ($nexgard_ok): ?>
@@ -723,7 +704,6 @@ function verif_badge($status) {
                     </div>
                 </div>
 
-                <!-- Consent Form -->
                 <div class="req-item <?php echo $consent_signed ? 'passed' : 'failed'; ?>">
                     <div class="req-check <?php echo $consent_signed ? 'pass' : 'fail'; ?>">
                         <?php if ($consent_signed): ?>
@@ -742,11 +722,7 @@ function verif_badge($status) {
 
                 <?php endif; ?>
 
-            </div><!-- /req-grid -->
-        </div><!-- /Health panel -->
-
-        <!-- Documents -->
-        <div class="panel">
+            </div></div><div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -785,13 +761,11 @@ function verif_badge($status) {
                         </div>
                     </div>
                     <div class="doc-actions">
-                        <!-- Verification status badge -->
                         <span class="status-badge"
                               style="background:<?php echo $vb['bg']; ?>; color:<?php echo $vb['color']; ?>;">
                             <span class="status-dot" style="background:<?php echo $vb['dot']; ?>;"></span>
                             <?php echo htmlspecialchars($doc['VERIFICATION_STATUS'] ?? 'Unverified'); ?>
                         </span>
-                        <!-- View / Download link -->
                         <a href="<?php echo htmlspecialchars($doc['FILEPATH']); ?>"
                            target="_blank"
                            class="btn-icon"
@@ -804,13 +778,7 @@ function verif_badge($status) {
             </div>
             <?php endif; ?>
 
-        </div><!-- /Documents panel -->
-
-    </div><!-- /cards-grid-2 -->
-
-</div><!-- /page-wrapper -->
-
-<script>
+        </div></div></div><script>
 // JS functionality preserved — no changes to logic
 </script>
 
