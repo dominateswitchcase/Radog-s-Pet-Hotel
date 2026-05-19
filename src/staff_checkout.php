@@ -1,4 +1,6 @@
-<?php
+<!-- not use -->
+
+<!-- <?php
 session_start();
 require_once '../config/db.php';
 
@@ -290,4 +292,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 </body>
-</html>
+</html> -->

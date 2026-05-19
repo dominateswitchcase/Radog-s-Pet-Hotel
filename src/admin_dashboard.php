@@ -1,5 +1,3 @@
-<!-- being used by admin dashboard -->
-
 <?php
 session_start();
 require_once '../config/db.php';
@@ -15,47 +13,85 @@ if (!isset($_SESSION['account_id'])) {
 $display_name = htmlspecialchars($_SESSION['username'] ?? 'Admin');
 
 // ════════════════════════════════════════════════════════════════
+// SAFE DEFAULTS — prevents undefined-variable warnings if any
+// query below throws before the variable is assigned
+// ════════════════════════════════════════════════════════════════
+$total_bookings      = 0;
+$monthly_sales       = 0;
+$total_rooms         = 0;
+$booked_rooms        = 0;
+$occupancy_rate      = 0;
+$booked_this_month   = 0;
+$revenueLabels       = [];
+$revenueAmounts      = [];
+$schedule_today      = [];
+
+// ════════════════════════════════════════════════════════════════
 // FETCH METRICS
 // ════════════════════════════════════════════════════════════════
 try {
+    // Total bookings (all time)
     $stmt = $pdo->query("SELECT COUNT(*) FROM BOOKING");
-    $total_bookings = $stmt->fetchColumn();
+    $total_bookings = (int) $stmt->fetchColumn();
 
-    $stmt = $pdo->query("SELECT SUM(Total_Amount) FROM PAYMENT WHERE Payment_Status = 'Paid'");
-    $monthly_sales = $stmt->fetchColumn() ?: 0;
+    // Total paid sales (all time) - FIXED: Querying TOTAL_AMOUNT from BOOKING instead of missing PAYMENT table
+    $stmt = $pdo->query("SELECT NVL(SUM(TOTAL_AMOUNT), 0) FROM BOOKING WHERE TOTAL_AMOUNT > 0");
+    $monthly_sales = (float) ($stmt->fetchColumn() ?: 0);
 
+    // Accommodation totals
     $stmtTotal  = $pdo->query("SELECT COUNT(*) FROM ACCOMMODATION");
-    $total_rooms = $stmtTotal->fetchColumn();
+    $total_rooms  = (int) $stmtTotal->fetchColumn();
 
     $stmtBooked = $pdo->query("SELECT COUNT(*) FROM ACCOMMODATION WHERE Occupancy_Status = 'Booked'");
-    $booked_rooms = $stmtBooked->fetchColumn();
+    $booked_rooms = (int) $stmtBooked->fetchColumn();
 
-    $occupancy_rate = ($total_rooms > 0) ? ($booked_rooms / $total_rooms) * 100 : 0;
+    $occupancy_rate = ($total_rooms > 0) ? round(($booked_rooms / $total_rooms) * 100, 1) : 0;
 
-    $stmtStatus = $pdo->query("SELECT Booking_Status, COUNT(*) as Status_Count FROM BOOKING GROUP BY Booking_Status");
-    $statusData = $stmtStatus->fetchAll(PDO::FETCH_ASSOC);
-    $statusLabels = [];
-    $statusCounts = [];
-    foreach ($statusData as $row) {
-        $statusLabels[] = $row['BOOKING_STATUS'];
-        $statusCounts[] = $row['STATUS_COUNT'];
-    }
+    // Bookings confirmed/started this calendar month
+    $stmtMonth = $pdo->query(
+        "SELECT COUNT(*) FROM BOOKING
+         WHERE BOOKING_STATUS = 'Confirmed'
+           AND TRUNC(CHECK_IN_DATE, 'MM') = TRUNC(SYSDATE, 'MM')"
+    );
+    $booked_this_month = (int) $stmtMonth->fetchColumn();
 
-    $revenueQuery = "SELECT TO_CHAR(B.Check_Out_Date, 'MON YYYY') AS Sale_Month,
-                            SUM(P.Total_Amount) AS Monthly_Revenue
-                     FROM PAYMENT P
-                     JOIN BOOKING B ON P.Booking_ID = B.Booking_ID
-                     WHERE P.Payment_Status = 'Paid'
-                     GROUP BY TO_CHAR(B.Check_Out_Date, 'MON YYYY'), TO_CHAR(B.Check_Out_Date, 'YYYY-MM')
-                     ORDER BY TO_CHAR(B.Check_Out_Date, 'YYYY-MM')";
+    // Revenue trend (line chart) - FIXED: Removed JOIN to missing PAYMENT table
+    $revenueQuery = "SELECT TO_CHAR(Check_Out_Date, 'MON YYYY') AS Sale_Month,
+                            SUM(TOTAL_AMOUNT) AS Monthly_Revenue
+                     FROM BOOKING
+                     WHERE TOTAL_AMOUNT > 0
+                     GROUP BY TO_CHAR(Check_Out_Date, 'MON YYYY'),
+                              TO_CHAR(Check_Out_Date, 'YYYY-MM')
+                     ORDER BY TO_CHAR(Check_Out_Date, 'YYYY-MM')";
     $stmtRevenue  = $pdo->query($revenueQuery);
     $revenueData  = $stmtRevenue->fetchAll(PDO::FETCH_ASSOC);
-    $revenueLabels  = [];
-    $revenueAmounts = [];
     foreach ($revenueData as $row) {
         $revenueLabels[]  = $row['SALE_MONTH'];
-        $revenueAmounts[] = $row['MONTHLY_REVENUE'];
+        $revenueAmounts[] = (float) $row['MONTHLY_REVENUE'];
     }
+
+    // Today's check-in & check-out schedule (Unchanged, this part was correct)
+    $scheduleQuery = "SELECT B.BOOKING_ID,
+                             P.PET_NAME,
+                             O.FIRST_NAME || ' ' || O.LAST_NAME AS OWNER_NAME,
+                             A.UNIT_NAME,
+                             B.CHECK_IN_DATE,
+                             B.CHECK_OUT_DATE,
+                             B.BOOKING_STATUS,
+                             B.SPECIAL_INSTRUCTIONS,
+                             CASE
+                               WHEN TRUNC(B.CHECK_IN_DATE)  = TRUNC(SYSDATE) THEN 'Check-In'
+                               WHEN TRUNC(B.CHECK_OUT_DATE) = TRUNC(SYSDATE) THEN 'Check-Out'
+                             END AS SCHEDULE_TYPE
+                      FROM BOOKING B
+                      JOIN PET           P ON B.PET_ID           = P.PET_ID
+                      JOIN OWNER         O ON B.OWNER_ID         = O.OWNER_ID
+                      JOIN ACCOMMODATION A ON B.ACCOMMODATION_ID = A.ACCOMMODATION_ID
+                      WHERE TRUNC(B.CHECK_IN_DATE)  = TRUNC(SYSDATE)
+                         OR TRUNC(B.CHECK_OUT_DATE) = TRUNC(SYSDATE)
+                      ORDER BY B.CHECK_IN_DATE ASC";
+    $stmtSchedule   = $pdo->query($scheduleQuery);
+    $schedule_today = $stmtSchedule->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     $db_error = 'Error loading data: ' . $e->getMessage();
@@ -397,8 +433,52 @@ try {
         .btn-ghost:hover { background: rgba(34,34,34,0.04); border-color: var(--orange); }
 
         /* ══════════════════════════════════════════════════════
-           ANIMATIONS & RESPONSIVE
+           TABLE
         ══════════════════════════════════════════════════════ */
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table thead tr { background: rgba(250,129,18,0.04); }
+        .data-table th {
+            padding: 12px 20px;
+            font-size: 0.72rem; font-weight: 600;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            color: rgba(34,34,34,0.45); text-align: left;
+            border-bottom: 1px solid rgba(34,34,34,0.06);
+        }
+        .data-table tbody tr { border-bottom: 1px solid rgba(34,34,34,0.05); transition: background 0.15s; }
+        .data-table tbody tr:last-child { border-bottom: none; }
+        .data-table tbody tr:hover { background: rgba(250,129,18,0.03); }
+        .data-table td { padding: 14px 20px; font-size: 0.92rem; vertical-align: middle; }
+
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 99px;
+            font-size: 0.78rem; font-weight: 600;
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+        .status-confirmed  { background: rgba(250,129,18,0.12); color: #d96a08; }
+        .status-confirmed .status-dot { background: var(--orange); }
+        .status-completed  { background: rgba(34,197,94,0.1);  color: #16a34a; }
+        .status-completed .status-dot { background: #22c55e; }
+        .status-cancelled  { background: rgba(239,68,68,0.1);  color: #991b1b; }
+        .status-cancelled .status-dot { background: #ef4444; }
+        .status-pending    { background: rgba(245,158,11,0.1); color: #92400e; }
+        .status-pending .status-dot   { background: #f59e0b; }
+
+        .schedule-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 99px;
+            font-size: 0.78rem; font-weight: 600;
+        }
+        .badge-checkin  { background: rgba(34,197,94,0.12); color: #16a34a; }
+        .badge-checkin .status-dot  { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
+        .badge-checkout { background: rgba(250,129,18,0.12); color: #d96a08; }
+        .badge-checkout .status-dot { background: var(--orange); box-shadow: 0 0 5px var(--orange); }
+
+        /* charts grid full-width when only one chart */
+        .charts-grid { grid-template-columns: 1fr; }
+
+
         @keyframes fadeUp {
             from { opacity: 0; transform: translateY(20px); }
             to   { opacity: 1; transform: translateY(0); }
@@ -460,7 +540,7 @@ try {
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             Schedule
         </a></li>
-        <li><a href="calendar-unified.php" class="nav-link">
+        <li><a href="calendar.php" class="nav-link">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10h18"/></svg>
             Calendar
         </a></li>
@@ -561,25 +641,37 @@ try {
 
     </div>
 
+    <!-- ── Secondary Stat Cards ── -->
+    <div class="stats-grid" style="margin-bottom: 28px; grid-template-columns: 1fr 2fr;">
+
+        <div class="stat-card orange">
+            <div class="stat-icon orange">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="stat-label">Booked This Month</div>
+            <div class="stat-value"><?php echo $booked_this_month; ?></div>
+            <div class="stat-sub">Confirmed bookings in <?php echo date('F Y'); ?></div>
+        </div>
+
+        <div class="stat-card blue">
+            <div class="stat-icon blue">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6"/>
+                </svg>
+            </div>
+            <div class="stat-label">Total Active Occupancy</div>
+            <div class="stat-value"><?php echo $booked_rooms; ?> <span style="font-size:1rem;color:rgba(34,34,34,0.35);letter-spacing:0.06em;">/ <?php echo $total_rooms; ?></span></div>
+            <div class="stat-sub">Units physically occupied right now — <?php echo $occupancy_rate; ?>% occupancy rate</div>
+        </div>
+
+    </div>
+
     <!-- ── Charts ── -->
     <div class="charts-grid">
 
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-icon">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/>
-                    </svg>
-                </div>
-                <span class="panel-heading">Booking Status</span>
-            </div>
-            <div class="chart-wrap">
-                <canvas id="statusChart"></canvas>
-            </div>
-        </div>
-
-        <div class="panel">
+        <div class="panel" style="grid-column: span 2;">
             <div class="panel-header">
                 <div class="panel-icon">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -593,6 +685,86 @@ try {
             </div>
         </div>
 
+    </div>
+
+    <!-- ── Today's Schedule ── -->
+    <div class="panel" style="margin-bottom: 28px;">
+        <div class="panel-header">
+            <div class="panel-icon">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <span class="panel-heading">Today's Check-In &amp; Check-Out Schedule</span>
+            <span style="margin-left:auto; font-size:0.78rem; font-weight:600; background:rgba(250,129,18,0.1); color:var(--orange); padding:4px 12px; border-radius:99px; letter-spacing:0.04em;">
+                <?php echo date('F j, Y'); ?>
+            </span>
+        </div>
+
+        <?php if (empty($schedule_today)): ?>
+            <div style="text-align:center; padding:40px 20px; color:rgba(34,34,34,0.35);">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"
+                     style="width:40px;height:40px;margin:0 auto 12px;display:block;opacity:0.3;">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                <p style="font-size:0.92rem;">No check-ins or check-outs scheduled for today.</p>
+            </div>
+        <?php else: ?>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Pet</th>
+                            <th>Owner</th>
+                            <th>Unit</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Special Instructions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($schedule_today as $s): ?>
+                            <?php
+                                $type      = htmlspecialchars($s['SCHEDULE_TYPE']);
+                                $isCheckIn = $s['SCHEDULE_TYPE'] === 'Check-In';
+                                $dateVal   = $isCheckIn
+                                    ? date('M j, Y', strtotime($s['CHECK_IN_DATE']))
+                                    : date('M j, Y', strtotime($s['CHECK_OUT_DATE']));
+                                $bStatus   = strtolower(htmlspecialchars($s['BOOKING_STATUS']));
+                            ?>
+                            <tr>
+                                <td>
+                                    <span class="schedule-badge <?php echo $isCheckIn ? 'badge-checkin' : 'badge-checkout'; ?>">
+                                        <span class="status-dot"></span>
+                                        <?php echo $type; ?>
+                                    </span>
+                                </td>
+                                <td style="font-weight:600;"><?php echo htmlspecialchars($s['PET_NAME']); ?></td>
+                                <td><?php echo htmlspecialchars($s['OWNER_NAME']); ?></td>
+                                <td>
+                                    <span style="font-size:0.8rem;background:rgba(34,34,34,0.06);padding:3px 10px;border-radius:99px;font-weight:500;">
+                                        <?php echo htmlspecialchars($s['UNIT_NAME']); ?>
+                                    </span>
+                                </td>
+                                <td style="font-size:0.88rem;color:rgba(34,34,34,0.65);"><?php echo $dateVal; ?></td>
+                                <td>
+                                    <span class="status-badge status-<?php echo $bStatus; ?>">
+                                        <span class="status-dot"></span>
+                                        <?php echo htmlspecialchars($s['BOOKING_STATUS']); ?>
+                                    </span>
+                                </td>
+                                <td style="font-size:0.85rem;color:rgba(34,34,34,0.6);max-width:220px;">
+                                    <?php echo $s['SPECIAL_INSTRUCTIONS']
+                                        ? htmlspecialchars($s['SPECIAL_INSTRUCTIONS'])
+                                        : '<span style="font-style:italic;opacity:0.4;">None</span>'; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- ── Quick Actions ── -->
@@ -635,41 +807,6 @@ try {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-
-    /* ── Doughnut: Booking Status ─────────────────── */
-    const statusCtx    = document.getElementById('statusChart').getContext('2d');
-    const statusLabels = <?php echo json_encode($statusLabels); ?>;
-    const statusData   = <?php echo json_encode($statusCounts); ?>;
-
-    new Chart(statusCtx, {
-        type: 'doughnut',
-        data: {
-            labels: statusLabels,
-            datasets: [{
-                data: statusData,
-                backgroundColor: ['#FA8112', '#22c55e', '#f59e0b', '#ef4444'],
-                borderWidth: 0,
-                hoverOffset: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '68%',
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: {
-                        font: { family: 'DM Sans', size: 12 },
-                        color: '#222222',
-                        padding: 16,
-                        usePointStyle: true,
-                        pointStyleWidth: 8,
-                    }
-                }
-            }
-        }
-    });
 
     /* ── Line: Revenue Trend ──────────────────────── */
     const revenueCtx     = document.getElementById('revenueChart').getContext('2d');

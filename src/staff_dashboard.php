@@ -674,14 +674,11 @@ $units = $units_stmt->fetchAll(PDO::FETCH_ASSOC);
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M14 10h.01M10 10h.01M9 16s1 1 3 1 3-1 3-1M21 12c0 4.97-4.03 9-9 9S3 16.97 3 12 7.03 3 12 3s9 4.03 9 9z"/></svg>
             Pets
         </a></li>
-        <li><a href="checkout.php" class="nav-link">
+        <!-- <li><a href="checkout.php" class="nav-link">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
             Checkout / Payments
-        </a></li>
-        <a href="user_management.php" class="nav-link d-flex align-items-center mb-2">
-        <i class="bi bi-gear-fill me-3"></i> User Management
-    </a>
-
+        </a></li> -->
+    
     <div class="sidebar-spacer"></div>
     <div class="sidebar-divider"></div>
 
