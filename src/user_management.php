@@ -869,16 +869,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         .modal-body { padding: 28px; }
         .modal-body .form-grid { gap: 18px; }
 
-        /* Auto-ID info box */
-        .auto-id-note {
-            display: flex; align-items: center; gap: 8px;
-            background: rgba(250,129,18,0.08);
-            border: 1px solid rgba(250,129,18,0.2);
-            border-radius: 10px; padding: 10px 14px;
-            font-size: 0.82rem; color: var(--orange-dk);
-        }
-        .auto-id-note svg { width: 15px; height: 15px; flex-shrink: 0; }
-
         /* ── RESPONSIVE ──────────────────────────────── */
         @media (max-width: 1100px) {
             .top-bar, .folder-tab-area { padding-left: 24px; padding-right: 24px; }
@@ -938,10 +928,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
             Pets
         </a>
-        <!-- <a href="checkout.php" class="nav-link">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg>
-            Checkout / Payments
-        </a> -->
         <a href="user_management.php" class="nav-link active">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
             User Management
@@ -984,7 +970,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 
         <div class="folder-content-wrap">
 
-            <!-- ── ACCOMMODATION TAB ──────────────────────── -->
             <div id="panel-accommodation" class="tab-panel">
                 <?php if ($activeTab === 'accommodation' && $success): ?>
                     <div class="alert alert-success">
@@ -1073,7 +1058,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
-            <!-- ── TIER TAB ───────────────────────────────── -->
             <div id="panel-tier" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'tier' && $success): ?>
                     <div class="alert alert-success">
@@ -1194,7 +1178,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
-            <!-- ── PET CATEGORY TAB ───────────────────────── -->
             <div id="panel-pet_category" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'pet_category' && $success): ?>
                     <div class="alert alert-success">
@@ -1300,7 +1283,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
-            <!-- ── SERVICE TAB ────────────────────────────── -->
             <div id="panel-service" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'service' && $success): ?>
                     <div class="alert alert-success">
@@ -1421,7 +1403,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
-            <!-- ── EMPLOYEE TAB ───────────────────────────── -->
             <div id="panel-employee" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'employee' && $success): ?>
                     <div class="alert alert-success">
@@ -1505,7 +1486,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
-            <!-- ── MY ACCOUNT TAB ─────────────────────────── -->
             <div id="panel-account" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'account' && $success): ?>
                     <div class="alert alert-success">
@@ -1610,7 +1590,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         </div></div>
 </main>
 
-<!-- ── MODAL ──────────────────────────────────────────────── -->
 <div class="modal-overlay" id="accountModal">
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
         <div class="modal-head">
@@ -1801,10 +1780,6 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         openAddEmployeeBtn.addEventListener('click', function () {
             openModal('New User Registration', `
                 <form method="POST" action="user_management.php?tab=employee" class="form-grid">
-                    <div class="auto-id-note">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                        Employee ID is automatically assigned by the system (starting from 13).
-                    </div>
                     ${fieldRow('Username', '<input type="text" name="username" placeholder="Enter login username" required>')}
                     ${fieldRow('Password', '<input type="password" name="password" placeholder="Minimum 8 characters" required minlength="8">')}
                     ${fieldRow('User Group', `<select name="user_group_id" required>
