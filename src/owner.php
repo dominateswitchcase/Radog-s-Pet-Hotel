@@ -448,6 +448,65 @@ $role = $_SESSION['role'] ?? 'Staff';
         input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(34,34,34,0.04); }
         textarea { resize: vertical; min-height: 90px; }
 
+        /* ── FILE UPLOAD ── */
+        .file-upload-wrap { position: relative; }
+        .file-upload-label {
+            display: flex; align-items: center; gap: 10px;
+            padding: 13px 16px; border: 1.5px dashed #c9bfb2;
+            border-radius: 12px; background: var(--beige);
+            cursor: pointer; font-size: 0.9rem;
+            color: rgba(34,34,34,0.55);
+            transition: border-color 0.2s, background 0.2s, color 0.2s;
+        }
+        .file-upload-label:hover { border-color: var(--orange); color: var(--orange); background: rgba(250,129,18,0.04); }
+        .file-upload-label svg { width: 16px; height: 16px; flex-shrink: 0; }
+        .file-upload-label span.file-name {
+            font-style: italic; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; max-width: 340px;
+        }
+        input[type="file"] { display: none; }
+        .file-hint {
+            font-size: 0.75rem; color: rgba(34,34,34,0.4); margin-top: 6px; display: block;
+        }
+
+        /* ── CHECKBOXES ── */
+        .check-group { display: flex; flex-direction: column; gap: 10px; }
+        .check-label {
+            display: flex; align-items: center; gap: 12px;
+            cursor: pointer; font-size: 0.92rem; color: var(--black);
+            padding: 12px 14px; border: 1.5px solid #e2d9ce;
+            border-radius: 12px; background: var(--beige);
+            transition: border-color 0.2s, background 0.2s;
+            user-select: none;
+        }
+        .check-label:hover { border-color: var(--orange); background: rgba(250,129,18,0.04); }
+        .check-label input[type="checkbox"] {
+            width: 17px; height: 17px; flex-shrink: 0;
+            accent-color: var(--orange);
+            cursor: pointer; padding: 0; border-radius: 4px;
+        }
+        .check-label input[type="checkbox"]:focus { outline: none; box-shadow: none; }
+        .check-label.checked { border-color: var(--orange); background: rgba(250,129,18,0.08); }
+        .check-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            background: rgba(250,129,18,0.1);
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .check-icon svg { width: 15px; height: 15px; color: var(--orange); }
+        .check-text-wrap { flex-grow: 1; }
+        .check-title { font-size: 0.9rem; font-weight: 600; color: var(--black); line-height: 1.2; }
+        .check-desc  { font-size: 0.78rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
+
+        /* ── VERIFICATION SECTION DIVIDER ── */
+        .verify-divider {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
+            color: rgba(34,34,34,0.35); margin-bottom: 12px; margin-top: 4px;
+        }
+        .verify-divider::before, .verify-divider::after {
+            content: ''; flex: 1; height: 1px; background: rgba(34,34,34,0.1);
+        }
+
         /* ── ALERTS ── */
         .alert {
             display: flex; align-items: flex-start; gap: 10px;
@@ -614,11 +673,6 @@ $role = $_SESSION['role'] ?? 'Staff';
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5.172C10 3.782 8.423 2.679 6.5 3c-2.823.47-4.113 6.006-4 7 .08.703 1.725 1.722 3.656 1 1.261-.472 1.96-1.45 2.344-2.5"/><path d="M14.267 5.172c0-1.39 1.577-2.493 3.5-2.172 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75z"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444c0-1.061-.162-2.2-.493-3.309m-9.243-6.082A8.801 8.801 0 0 1 12 5c.78 0 1.5.108 2.161.306"/></svg>
             Pets
         </a>
-<!-- 
-        <a href="checkout-unified.php" class="nav-link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-            Checkout / Payments
-        </a> -->
 
         <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
         <a href="user_management.php" class="nav-link">
@@ -753,12 +807,17 @@ $role = $_SESSION['role'] ?? 'Staff';
                 <div class="modal-section-label">Pet Information</div>
 
                 <div id="modalPetContainer">
+                    <!-- ── PET ENTRY TEMPLATE ── -->
                     <div class="pet-entry">
                         <div class="pet-entry-header">Pet #1</div>
+
+                        <!-- Pet name -->
                         <div class="field-group">
                             <label class="field-label">Pet Name</label>
                             <input type="text" name="pets[0][pet_name]" placeholder="e.g. Buddy" required>
                         </div>
+
+                        <!-- Category + Weight -->
                         <div class="grid-2" style="margin-bottom:16px;">
                             <div class="field-group">
                                 <label class="field-label">Species / Category</label>
@@ -774,6 +833,8 @@ $role = $_SESSION['role'] ?? 'Staff';
                                 <input type="number" step="0.1" name="pets[0][pet_weight]" placeholder="e.g. 12.5" required>
                             </div>
                         </div>
+
+                        <!-- Sex -->
                         <div class="field-group" style="margin-bottom:16px;">
                             <label class="field-label">Sex</label>
                             <div class="radio-group">
@@ -781,17 +842,69 @@ $role = $_SESSION['role'] ?? 'Staff';
                                 <label class="radio-label"><input type="radio" name="pets[0][sex]" value="Female"> Female</label>
                             </div>
                         </div>
-                        <div class="grid-2">
+
+                        <!-- Feeding time + Portion -->
+                        <div class="grid-2" style="margin-bottom:0;">
                             <div class="field-group">
                                 <label class="field-label">Feeding Time</label>
-                                <input type="text" name="pets[0][feeding_time]" placeholder="e.g. 08:00" required>
+                                <input type="text" name="pets[0][feeding_time]" placeholder="e.g. BID / 08:00" required>
                             </div>
                             <div class="field-group">
                                 <label class="field-label">Portion</label>
                                 <input type="text" name="pets[0][portion]" placeholder="e.g. 1 cup" required>
                             </div>
                         </div>
+
+                        <!-- ── NEW: Document Upload ── -->
+                        <div class="field-group" style="margin-top:4px;">
+                            <label class="field-label">Attach Pet Documents</label>
+                            <div class="file-upload-wrap">
+                                <label class="file-upload-label" id="fileLabel_0" for="petDoc_0">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                    <span class="file-name">Upload Vetcard, Waiver, or Consent Form&hellip;</span>
+                                </label>
+                                <input type="file" name="pets[0][documents][]" id="petDoc_0"
+                                       accept=".pdf,.jpg,.jpeg,.png" multiple
+                                       onchange="updateFileLabel(this, 'fileLabel_0')">
+                            </div>
+                            <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files.</span>
+                        </div>
+
+                        <!-- ── NEW: Ocular & Vaccine Checks ── -->
+                        <div class="field-group" style="margin-bottom:0;">
+                            <label class="field-label">Check-In Verifications</label>
+                            <div class="check-group">
+
+                                <!-- Ocular Exam -->
+                                <label class="check-label" onclick="toggleCheck(this)">
+                                    <input type="checkbox" name="pets[0][ocular_exam]" value="Yes">
+                                    <span class="check-icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    </span>
+                                    <span class="check-text-wrap">
+                                        <span class="check-title">Ocular Exam Passed</span>
+                                        <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
+                                    </span>
+                                </label>
+
+                                <!-- Vaccination Verified -->
+                                <label class="check-label" onclick="toggleCheck(this)">
+                                    <input type="checkbox" name="pets[0][vaccine_verified]" value="Yes">
+                                    <span class="check-icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                    </span>
+                                    <span class="check-text-wrap">
+                                        <span class="check-title">Vaccination Verified</span>
+                                        <span class="check-desc">Vaccination records checked and confirmed.</span>
+                                    </span>
+                                </label>
+
+                            </div>
+                        </div>
+                        <!-- ── END NEW FIELDS ── -->
+
                     </div>
+                    <!-- ── END PET ENTRY TEMPLATE ── -->
                 </div>
 
                 <button type="button" id="modalAddPetBtn" class="btn-add-pet" style="margin-bottom:16px;">
@@ -908,10 +1021,10 @@ $role = $_SESSION['role'] ?? 'Staff';
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
-     JAVASCRIPT (all original logic preserved, zero changes)
+     JAVASCRIPT
 ════════════════════════════════════════════════════════════ -->
 <script>
-    // Modal helpers
+    // ── Modal helpers ──────────────────────────────────────
     function openModal(id) {
         document.getElementById(id).classList.add('open');
     }
@@ -934,6 +1047,7 @@ $role = $_SESSION['role'] ?? 'Staff';
         }
     });
 
+    // ── Alert helper ───────────────────────────────────────
     function showAlert(wrapId, type, message) {
         var wrap = document.getElementById(wrapId);
         var icon = type === 'success'
@@ -943,13 +1057,43 @@ $role = $_SESSION['role'] ?? 'Staff';
         wrap.style.display = 'block';
     }
 
+    // ── File label updater ─────────────────────────────────
+    function updateFileLabel(input, labelId) {
+        var label = document.getElementById(labelId);
+        if (!label) return;
+        var span = label.querySelector('.file-name');
+        if (input.files && input.files.length > 0) {
+            var names = Array.from(input.files).map(function(f) { return f.name; }).join(', ');
+            span.textContent = names;
+            label.style.borderColor = 'var(--orange)';
+            label.style.color = 'var(--orange)';
+        } else {
+            span.textContent = 'Upload Vetcard, Waiver, or Consent Form\u2026';
+            label.style.borderColor = '';
+            label.style.color = '';
+        }
+    }
+
+    // ── Checkbox toggle visual state ───────────────────────
+    function toggleCheck(labelEl) {
+        // Defer so the checkbox checked state updates first
+        setTimeout(function() {
+            var cb = labelEl.querySelector('input[type="checkbox"]');
+            if (cb && cb.checked) {
+                labelEl.classList.add('checked');
+            } else {
+                labelEl.classList.remove('checked');
+            }
+        }, 0);
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const ownerSelect = document.getElementById('modalPetSelect');
         let ownerPets = [];
 
-        // ========================================================
+        // ====================================================
         // JELLYACE: "Add Another Pet" Dynamic Cloning Logic
-        // ========================================================
+        // ====================================================
         document.getElementById('modalAddPetBtn').addEventListener('click', function() {
             const petContainer = document.getElementById('modalPetContainer');
             const petEntries = petContainer.querySelectorAll('.pet-entry');
@@ -961,20 +1105,53 @@ $role = $_SESSION['role'] ?? 'Staff';
             // Update header
             newPet.querySelector('.pet-entry-header').textContent = 'Pet #' + (newIndex + 1);
 
-            // Reset values and update nested array indices
-            const inputs = newPet.querySelectorAll('input, select');
-            inputs.forEach(input => {
+            // Reset values and update nested array indices for standard inputs
+            const inputs = newPet.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], select, textarea');
+            inputs.forEach(function(input) {
                 const name = input.name;
                 if (name) {
-                    input.name = name.replace(/pets\[0\]/, `pets[${newIndex}]`);
-                    if (input.type === 'radio') {
-                        input.checked = input.value === 'Male';
-                    } else {
-                        input.value = '';
+                    input.name = name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
+                }
+                input.value = '';
+            });
+
+            // Reset radio buttons (sex)
+            newPet.querySelectorAll('input[type="radio"]').forEach(function(radio) {
+                if (radio.name) {
+                    radio.name = radio.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
+                }
+                radio.checked = radio.value === 'Male';
+            });
+
+            // Reset file upload input and re-link label
+            var fileInput = newPet.querySelector('input[type="file"]');
+            var fileLabel = newPet.querySelector('.file-upload-label');
+            if (fileInput && fileLabel) {
+                var newFileId = 'petDoc_' + newIndex;
+                fileInput.name = 'pets[' + newIndex + '][documents][]';
+                fileInput.id = newFileId;
+                var newLabelId = 'fileLabel_' + newIndex;
+                fileLabel.setAttribute('for', newFileId);
+                fileLabel.id = newLabelId;
+                fileInput.setAttribute('onchange', "updateFileLabel(this, '" + newLabelId + "')");
+                var fileSpan = fileLabel.querySelector('.file-name');
+                if (fileSpan) fileSpan.textContent = 'Upload Vetcard, Waiver, or Consent Form\u2026';
+                fileLabel.style.borderColor = '';
+                fileLabel.style.color = '';
+            }
+
+            // Reset checkboxes and visual state
+            newPet.querySelectorAll('.check-label').forEach(function(cl) {
+                cl.classList.remove('checked');
+                var cb = cl.querySelector('input[type="checkbox"]');
+                if (cb) {
+                    cb.checked = false;
+                    if (cb.name) {
+                        cb.name = cb.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
                     }
                 }
             });
-            
+
             // Add remove button
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
@@ -987,9 +1164,9 @@ $role = $_SESSION['role'] ?? 'Staff';
             petContainer.appendChild(newPet);
         });
 
-        // ========================================================
+        // ====================================================
         // AJAX Form Submission for Create
-        // ========================================================
+        // ====================================================
         document.getElementById('submitNewOwnerBtn').addEventListener('click', function() {
             const form = document.getElementById('createOwnerForm');
             if (!form.checkValidity()) {
@@ -1019,9 +1196,9 @@ $role = $_SESSION['role'] ?? 'Staff';
             });
         });
 
-        // ========================================================
-        // Handle Edit & Deactivate (Existing Logic)
-        // ========================================================
+        // ====================================================
+        // Handle Edit & Deactivate (Existing Logic — Unchanged)
+        // ====================================================
         document.querySelectorAll('.edit-owner-btn').forEach(button => {
             button.addEventListener('click', function() {
                 const ownerId = this.getAttribute('data-owner-id');
