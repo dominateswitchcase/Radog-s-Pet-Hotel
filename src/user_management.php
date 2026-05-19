@@ -333,14 +333,14 @@ $inactiveCategoryFilter = $supportsStatus['PET_CATEGORY'] ? "WHERE STATUS = 'Ina
 $activeServiceFilter    = $supportsStatus['SERVICE']      ? "WHERE STATUS = 'Active'" : '';
 $inactiveServiceFilter  = $supportsStatus['SERVICE']      ? "WHERE STATUS = 'Inactive'" : '';
 
-$activeTiers       = $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE " . ($supportsStatus['TIER'] ? ', STATUS' : '') . " FROM TIER $statusFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC);
-$allTiers          = $pdo->query('SELECT TIER_ID, TIER_NAME FROM TIER ORDER BY TIER_ID')->fetchAll(PDO::FETCH_ASSOC);
-$inactiveTiers     = $supportsStatus['TIER'] ? $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS FROM TIER $inactiveTierFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
-$activeCategories  = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES " . ($supportsStatus['PET_CATEGORY'] ? ', STATUS' : '') . " FROM PET_CATEGORY $activeCategoryFilter ORDER BY CATEGORY_ID")->fetchAll(PDO::FETCH_ASSOC);
+$activeTiers        = $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE " . ($supportsStatus['TIER'] ? ', STATUS' : '') . " FROM TIER $statusFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC);
+$allTiers           = $pdo->query('SELECT TIER_ID, TIER_NAME FROM TIER ORDER BY TIER_ID')->fetchAll(PDO::FETCH_ASSOC);
+$inactiveTiers      = $supportsStatus['TIER'] ? $pdo->query("SELECT TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS FROM TIER $inactiveTierFilter ORDER BY TIER_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
+$activeCategories   = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES " . ($supportsStatus['PET_CATEGORY'] ? ', STATUS' : '') . " FROM PET_CATEGORY $activeCategoryFilter ORDER BY CATEGORY_ID")->fetchAll(PDO::FETCH_ASSOC);
 $inactiveCategories = $supportsStatus['PET_CATEGORY'] ? $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS FROM PET_CATEGORY $inactiveCategoryFilter ORDER BY CATEGORY_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
-$activeServices    = $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE " . ($supportsStatus['SERVICE'] ? ', STATUS' : '') . " FROM SERVICE $activeServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC);
-$inactiveServices  = $supportsStatus['SERVICE'] ? $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS FROM SERVICE $inactiveServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
-$accommodations    = $pdo->query(
+$activeServices     = $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE " . ($supportsStatus['SERVICE'] ? ', STATUS' : '') . " FROM SERVICE $activeServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC);
+$inactiveServices   = $supportsStatus['SERVICE'] ? $pdo->query("SELECT SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS FROM SERVICE $inactiveServiceFilter ORDER BY SERVICE_ID")->fetchAll(PDO::FETCH_ASSOC) : [];
+$accommodations     = $pdo->query(
     'SELECT A.ACCOMMODATION_ID, A.UNIT_NAME, A.ACCOMMODATION_TYPE, A.OCCUPANCY_STATUS, A.TIER_ID, T.TIER_NAME FROM ACCOMMODATION A JOIN TIER T ON A.TIER_ID = T.TIER_ID ORDER BY A.ACCOMMODATION_ID'
 )->fetchAll(PDO::FETCH_ASSOC);
 
@@ -355,12 +355,6 @@ $currentUserStmt = $pdo->prepare(
 );
 $currentUserStmt->execute(['id' => $_SESSION['account_id']]);
 $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', 'ACCOUNT_STATUS' => '', 'EMPLOYEE_USERNAME' => '', 'GROUP_NAME' => ''];
-
-// Build tier options HTML for modal JS injection
-$tierOptionsHtml = '';
-foreach ($activeTiers as $tier) {
-    $tierOptionsHtml .= '<option value="' . escape($tier['TIER_ID']) . '" data-tier-name="' . escape($tier['TIER_NAME']) . '">' . escape($tier['TIER_NAME']) . '</option>';
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -580,10 +574,7 @@ foreach ($activeTiers as $tier) {
             align-items: center;
             justify-content: space-between;
             padding: 24px 44px 0 44px;
-            position: relative;
         }
-
-        .top-bar-left {}
 
         .page-eyebrow {
             font-size: 0.75rem;
@@ -607,12 +598,7 @@ foreach ($activeTiers as $tier) {
         .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 4px; }
         .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); }
 
-        /* ── PROFILE CIRCLE (top-right) ──────────────────── */
-        .top-bar-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+        .top-bar-right { display: flex; align-items: center; gap: 12px; }
 
         .profile-circle {
             width: 44px;
@@ -664,9 +650,15 @@ foreach ($activeTiers as $tier) {
             position: relative;
         }
 
+        /*
+         * FIX: The tab button itself is position:relative so ::before/::after
+         * are anchored to it. The button text must render ABOVE ::before
+         * (the background layer). We achieve this by giving the inner <span>
+         * position:relative + z-index:2.
+         */
         .folder-tab {
             position: relative;
-            padding: 11px 26px 14px 26px;
+            padding: 11px 26px 18px 26px;   /* extra bottom padding so dot doesn't overlap text */
             font-family: 'Bebas Neue', sans-serif;
             font-size: 0.95rem;
             letter-spacing: 0.1em;
@@ -678,11 +670,18 @@ foreach ($activeTiers as $tier) {
             margin-right: -6px;
             transition: color 0.18s;
             z-index: 1;
-            /* Folder shape via clip-path to overlap nicely */
             outline: none;
         }
 
-        /* Inactive tab backing */
+        /* Tab label span — must sit above ::before background */
+        .folder-tab span {
+            position: relative;
+            z-index: 2;
+            pointer-events: none;
+            display: block;
+        }
+
+        /* Inactive tab backing — z-index:0 so it stays behind the text span */
         .folder-tab::before {
             content: '';
             position: absolute;
@@ -692,6 +691,7 @@ foreach ($activeTiers as $tier) {
             border: 1.5px solid rgba(34,34,34,0.1);
             border-bottom: none;
             transition: background 0.18s;
+            z-index: 0;
         }
 
         .folder-tab:hover {
@@ -714,20 +714,21 @@ foreach ($activeTiers as $tier) {
             box-shadow: 0 -4px 16px rgba(15,23,42,0.06);
         }
 
-        /* Dot indicator on active */
+        /* Orange dot indicator — z-index:2 so it shows above ::before */
         .folder-tab.active::after {
             content: '';
             position: absolute;
-            bottom: 6px;
+            bottom: 7px;
             left: 50%;
             transform: translateX(-50%);
             width: 5px;
             height: 5px;
             border-radius: 50%;
             background: var(--orange);
+            z-index: 2;
         }
 
-        /* The content area sits on top of the tab bar baseline */
+        /* Content area sits on top of tab bar baseline */
         .folder-content-wrap {
             background: var(--white);
             border: 1.5px solid rgba(34,34,34,0.1);
@@ -967,7 +968,6 @@ foreach ($activeTiers as $tier) {
         .account-info-name  { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; line-height: 1; }
         .account-info-role  { font-size: 0.8rem; color: var(--orange); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 3px; }
         .account-meta-grid  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-        .account-meta-item  { }
         .account-meta-label { font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(245,231,198,0.45); margin-bottom: 4px; }
         .account-meta-value { font-size: 0.95rem; color: rgba(255,255,255,0.9); font-weight: 500; }
         .account-status-active   { color: #86efac; }
@@ -1047,7 +1047,7 @@ foreach ($activeTiers as $tier) {
             .account-grid { grid-template-columns: 1fr; }
             .account-info-card { grid-column: span 1; }
             .account-meta-grid { grid-template-columns: 1fr 1fr; }
-            .folder-tab { padding: 9px 14px 12px 14px; font-size: 0.8rem; }
+            .folder-tab { padding: 9px 14px 16px 14px; font-size: 0.8rem; }
         }
     </style>
 </head>
@@ -1110,9 +1110,9 @@ foreach ($activeTiers as $tier) {
 <!-- ═══════════════════════════════════════════ MAIN CONTENT -->
 <main class="main-content">
 
-    <!-- ── TOP BAR with profile circle ─────────────────── -->
+    <!-- ── TOP BAR ──────────────────────────────────────── -->
     <div class="top-bar">
-        <div class="top-bar-left">
+        <div>
             <div class="page-eyebrow">Administration</div>
             <h1 class="page-title">User Management</h1>
             <p class="page-subtitle">Manage accommodations, tiers, pet categories, services, and your account settings.</p>
@@ -1127,12 +1127,20 @@ foreach ($activeTiers as $tier) {
 
     <!-- ── FOLDER TABS ──────────────────────────────────── -->
     <div class="folder-tab-area">
+        <!--
+            FIX: Each button's visible label is wrapped in a <span>.
+            The span gets position:relative + z-index:2 so it renders
+            ABOVE the ::before pseudo-element (the tab background layer).
+            Without the span, the text node has no stacking context and
+            gets painted behind ::before on the active (white-bg) tab,
+            making the label invisible.
+        -->
         <div class="folder-tabs" role="tablist">
-            <button type="button" class="folder-tab" data-tab="accommodation" role="tab">Accommodation</button>
-            <button type="button" class="folder-tab" data-tab="tier" role="tab">Tier</button>
-            <button type="button" class="folder-tab" data-tab="pet_category" role="tab">Pet Category</button>
-            <button type="button" class="folder-tab" data-tab="service" role="tab">Service</button>
-            <button type="button" class="folder-tab" data-tab="account" role="tab">My Account</button>
+            <button type="button" class="folder-tab" data-tab="accommodation" role="tab"><span>Accommodation</span></button>
+            <button type="button" class="folder-tab" data-tab="tier" role="tab"><span>Tier</span></button>
+            <button type="button" class="folder-tab" data-tab="pet_category" role="tab"><span>Pet Category</span></button>
+            <button type="button" class="folder-tab" data-tab="service" role="tab"><span>Service</span></button>
+            <button type="button" class="folder-tab" data-tab="account" role="tab"><span>My Account</span></button>
         </div>
 
         <!-- ─── FOLDER CONTENT AREA ─────────────────────── -->
@@ -1157,7 +1165,7 @@ foreach ($activeTiers as $tier) {
                     <div class="panel-header">
                         <div class="panel-header-left">
                             <div class="panel-icon">
-                                <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
                             </div>
                             <div>
                                 <div class="panel-heading">Accommodation Units</div>
@@ -1246,7 +1254,7 @@ foreach ($activeTiers as $tier) {
                     <div class="panel-header">
                         <div class="panel-header-left">
                             <div class="panel-icon">
-                                <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                             </div>
                             <div>
                                 <div class="panel-heading">Pet Tiers</div>
@@ -1367,7 +1375,7 @@ foreach ($activeTiers as $tier) {
                     <div class="panel-header">
                         <div class="panel-header-left">
                             <div class="panel-icon">
-                                <svg viewBox="0 0 24 24"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
                             </div>
                             <div>
                                 <div class="panel-heading">Pet Categories</div>
@@ -1473,7 +1481,7 @@ foreach ($activeTiers as $tier) {
                     <div class="panel-header">
                         <div class="panel-header-left">
                             <div class="panel-icon">
-                                <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                             </div>
                             <div>
                                 <div class="panel-heading">Services</div>
@@ -1617,7 +1625,7 @@ foreach ($activeTiers as $tier) {
                         <div class="panel-header" style="margin-bottom:20px;">
                             <div class="panel-header-left">
                                 <div class="panel-icon">
-                                    <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>
+                                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>
                                 </div>
                                 <div class="panel-heading">Edit Username</div>
                             </div>
@@ -1646,7 +1654,7 @@ foreach ($activeTiers as $tier) {
                         <div class="panel-header" style="margin-bottom:20px;">
                             <div class="panel-header-left">
                                 <div class="panel-icon">
-                                    <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
                                 </div>
                                 <div class="panel-heading">Change Password</div>
                             </div>
@@ -1826,11 +1834,11 @@ foreach ($activeTiers as $tier) {
     document.getElementById('openAddTier').addEventListener('click', function () {
         openModal('New Tier', `
             <form method="POST" action="user_management.php?tab=tier" class="form-grid">
-                <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
                     ${fieldRow('Tier Name', '<input type="text" name="tier_name" placeholder="Small, Medium, Large, Giant" required>')}
                     ${fieldRow('Description', '<input type="text" name="tier_description" placeholder="Short tier description">')}
                 </div>
-                <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
                     ${fieldRow('Weight Min (kg)', '<input type="number" name="weight_min" min="0" step="0.01" required>')}
                     ${fieldRow('Weight Max (kg)', '<input type="number" name="weight_max" min="0" step="0.01" required>')}
                 </div>
