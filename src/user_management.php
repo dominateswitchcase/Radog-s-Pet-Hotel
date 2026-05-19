@@ -568,10 +568,22 @@ foreach ($activeTiers as $tier) {
         /* ── MAIN CONTENT ────────────────────────────────── */
         .main-content {
             flex-grow: 1;
-            padding: 40px 44px;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
             animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both;
         }
+
+        /* ── TOP BAR ─────────────────────────────────────── */
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 24px 44px 0 44px;
+            position: relative;
+        }
+
+        .top-bar-left {}
 
         .page-eyebrow {
             font-size: 0.75rem;
@@ -592,38 +604,146 @@ foreach ($activeTiers as $tier) {
             background: var(--orange);
             border-radius: 99px;
         }
-        .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
-        .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); margin-bottom: 28px; }
+        .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 4px; }
+        .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); }
 
-        /* ── TAB BAR ─────────────────────────────────────── */
-        .tab-bar {
+        /* ── PROFILE CIRCLE (top-right) ──────────────────── */
+        .top-bar-right {
             display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-bottom: 24px;
+            align-items: center;
+            gap: 12px;
         }
-        .tab-btn {
-            padding: 10px 20px;
-            border-radius: 99px;
-            border: 1.5px solid rgba(34,34,34,0.14);
-            background: transparent;
-            color: var(--black);
-            font-family: 'DM Sans', sans-serif;
-            font-size: 0.88rem;
-            font-weight: 500;
+
+        .profile-circle {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--orange);
+            display: grid;
+            place-items: center;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.2rem;
+            color: var(--white);
             cursor: pointer;
-            transition: background 0.18s, color 0.18s, border-color 0.18s;
+            border: 3px solid var(--white);
+            box-shadow: 0 4px 16px rgba(250,129,18,0.35);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            flex-shrink: 0;
         }
-        .tab-btn:hover   { background: rgba(250,129,18,0.08); border-color: var(--orange); }
-        .tab-btn.active  { background: var(--black); color: var(--white); border-color: transparent; }
+        .profile-circle:hover {
+            transform: scale(1.08);
+            box-shadow: 0 6px 24px rgba(250,129,18,0.5);
+        }
+        .profile-circle-tooltip {
+            position: absolute;
+            bottom: -32px;
+            right: 0;
+            background: var(--black);
+            color: var(--white);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.18s;
+        }
+        .profile-circle:hover .profile-circle-tooltip { opacity: 1; }
+
+        /* ── FOLDER TAB BAR ──────────────────────────────── */
+        .folder-tab-area {
+            padding: 28px 44px 0 44px;
+        }
+
+        .folder-tabs {
+            display: flex;
+            align-items: flex-end;
+            gap: 0;
+            position: relative;
+        }
+
+        .folder-tab {
+            position: relative;
+            padding: 11px 26px 14px 26px;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 0.95rem;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: rgba(34,34,34,0.45);
+            border-radius: 14px 14px 0 0;
+            margin-right: -6px;
+            transition: color 0.18s;
+            z-index: 1;
+            /* Folder shape via clip-path to overlap nicely */
+            outline: none;
+        }
+
+        /* Inactive tab backing */
+        .folder-tab::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 14px 14px 0 0;
+            background: rgba(34,34,34,0.06);
+            border: 1.5px solid rgba(34,34,34,0.1);
+            border-bottom: none;
+            transition: background 0.18s;
+        }
+
+        .folder-tab:hover {
+            color: var(--black);
+            z-index: 2;
+        }
+        .folder-tab:hover::before {
+            background: rgba(250,129,18,0.1);
+            border-color: rgba(250,129,18,0.25);
+        }
+
+        /* Active tab */
+        .folder-tab.active {
+            color: var(--black);
+            z-index: 10;
+        }
+        .folder-tab.active::before {
+            background: var(--white);
+            border-color: rgba(34,34,34,0.1);
+            box-shadow: 0 -4px 16px rgba(15,23,42,0.06);
+        }
+
+        /* Dot indicator on active */
+        .folder-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: 6px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--orange);
+        }
+
+        /* The content area sits on top of the tab bar baseline */
+        .folder-content-wrap {
+            background: var(--white);
+            border: 1.5px solid rgba(34,34,34,0.1);
+            border-radius: 0 16px 16px 16px;
+            padding: 28px;
+            box-shadow: var(--shadow-card);
+            position: relative;
+            z-index: 5;
+        }
 
         /* ── PANEL / CARD ────────────────────────────────── */
         .panel {
-            background: var(--white);
+            background: var(--beige);
             border: var(--border-soft);
-            border-radius: 20px;
-            padding: 28px;
-            box-shadow: var(--shadow-card);
+            border-radius: 16px;
+            padding: 24px;
             margin-bottom: 20px;
         }
         .panel-header {
@@ -916,16 +1036,18 @@ foreach ($activeTiers as $tier) {
 
         /* ── RESPONSIVE ──────────────────────────────────── */
         @media (max-width: 1100px) {
-            .main-content { padding: 28px 24px; }
+            .top-bar, .folder-tab-area { padding-left: 24px; padding-right: 24px; }
         }
         @media (max-width: 900px) {
             body { flex-direction: column; }
             .sidebar { width: 100%; height: auto; position: static; }
-            .main-content { padding: 24px 20px; }
+            .top-bar, .folder-tab-area { padding: 20px 16px 0 16px; }
+            .folder-content-wrap { padding: 20px 16px; border-radius: 0 0 16px 16px; }
             .form-grid-2 { grid-template-columns: 1fr; }
             .account-grid { grid-template-columns: 1fr; }
             .account-info-card { grid-column: span 1; }
             .account-meta-grid { grid-template-columns: 1fr 1fr; }
+            .folder-tab { padding: 9px 14px 12px 14px; font-size: 0.8rem; }
         }
     </style>
 </head>
@@ -988,564 +1110,578 @@ foreach ($activeTiers as $tier) {
 <!-- ═══════════════════════════════════════════ MAIN CONTENT -->
 <main class="main-content">
 
-    <div class="page-eyebrow">Administration</div>
-    <h1 class="page-title">User Management</h1>
-    <p class="page-subtitle">Manage accommodations, tiers, pet categories, services, and your account settings.</p>
-
-    <!-- Tab Bar -->
-    <div class="tab-bar" role="tablist">
-        <button type="button" class="tab-btn" data-tab="accommodation">
-            <span>Accommodation</span>
-        </button>
-        <button type="button" class="tab-btn" data-tab="tier">Tier</button>
-        <button type="button" class="tab-btn" data-tab="pet_category">Pet Category</button>
-        <button type="button" class="tab-btn" data-tab="service">Service</button>
-        <button type="button" class="tab-btn" data-tab="account">
-            <span>My Account</span>
-        </button>
-    </div>
-
-    <!-- ─────────────── TAB: ACCOMMODATION ─────────────── -->
-    <div id="panel-accommodation" class="tab-panel">
-        <?php if ($activeTab === 'accommodation' && $success): ?>
-            <div class="alert alert-success">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                Accommodation updated successfully.
-            </div>
-        <?php endif; ?>
-        <?php if ($formErrors['accommodation']): ?>
-            <div class="alert alert-error">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                <?php echo escape($formErrors['accommodation']); ?>
-            </div>
-        <?php endif; ?>
-
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-header-left">
-                    <div class="panel-icon">
-                        <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-                    </div>
-                    <div>
-                        <div class="panel-heading">Accommodation Units</div>
-                        <div class="panel-subtext"><?php echo count($accommodations); ?> unit(s) registered</div>
-                    </div>
-                </div>
-                <button type="button" class="btn btn-primary" id="openAddAccommodation">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                    Add Unit
-                </button>
-            </div>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Unit Name</th>
-                            <th>Type</th>
-                            <th>Tier</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($accommodations as $unit): ?>
-                        <?php
-                            $badgeClass = 'badge-maintenance'; $dotClass = 'dot-maintenance';
-                            if ($unit['OCCUPANCY_STATUS'] === 'Available') { $badgeClass = 'badge-available'; $dotClass = 'dot-available'; }
-                            elseif ($unit['OCCUPANCY_STATUS'] === 'Booked') { $badgeClass = 'badge-booked'; $dotClass = 'dot-booked'; }
-                        ?>
-                        <tr>
-                            <td><strong><?php echo escape($unit['UNIT_NAME']); ?></strong></td>
-                            <td><?php echo escape($unit['ACCOMMODATION_TYPE']); ?></td>
-                            <td><?php echo escape($unit['TIER_NAME']); ?></td>
-                            <td>
-                                <span class="status-badge <?php echo $badgeClass; ?>">
-                                    <span class="status-dot <?php echo $dotClass; ?>"></span>
-                                    <?php echo escape($unit['OCCUPANCY_STATUS']); ?>
-                                </span>
-                            </td>
-                            <td>
-                                <div class="td-actions">
-                                    <button type="button" class="btn btn-ghost btn-sm edit-accommodation"
-                                        data-id="<?php echo escape($unit['ACCOMMODATION_ID']); ?>"
-                                        data-unit="<?php echo escape($unit['UNIT_NAME']); ?>"
-                                        data-type="<?php echo escape($unit['ACCOMMODATION_TYPE']); ?>"
-                                        data-tier="<?php echo escape($unit['TIER_ID']); ?>"
-                                        data-status="<?php echo escape($unit['OCCUPANCY_STATUS']); ?>">
-                                        Edit
-                                    </button>
-                                    <?php if ($unit['OCCUPANCY_STATUS'] !== 'Under Maintenance'): ?>
-                                    <form method="POST" action="user_management.php?tab=accommodation" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_accommodation">
-                                        <input type="hidden" name="accommodation_id" value="<?php echo escape($unit['ACCOMMODATION_ID']); ?>">
-                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Put this unit under maintenance?');">Deactivate</button>
-                                    </form>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (empty($accommodations)): ?>
-                        <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No accommodation units yet. Add one to get started.</td></tr>
-                    <?php endif; ?>
-                    </tbody>
-                </table>
+    <!-- ── TOP BAR with profile circle ─────────────────── -->
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <div class="page-eyebrow">Administration</div>
+            <h1 class="page-title">User Management</h1>
+            <p class="page-subtitle">Manage accommodations, tiers, pet categories, services, and your account settings.</p>
+        </div>
+        <div class="top-bar-right">
+            <div class="profile-circle" id="profileCircleBtn" title="My Account" role="button" tabindex="0" aria-label="Go to My Account">
+                <?php echo strtoupper(substr($_SESSION['username'] ?? 'A', 0, 1)); ?>
+                <span class="profile-circle-tooltip">My Account</span>
             </div>
         </div>
     </div>
 
-    <!-- ─────────────── TAB: TIER ─────────────── -->
-    <div id="panel-tier" class="tab-panel" style="display:none;">
-        <?php if ($activeTab === 'tier' && $success): ?>
-            <div class="alert alert-success">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                Tier updated successfully.
-            </div>
-        <?php endif; ?>
-        <?php if ($formErrors['tier']): ?>
-            <div class="alert alert-error">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                <?php echo escape($formErrors['tier']); ?>
-            </div>
-        <?php endif; ?>
+    <!-- ── FOLDER TABS ──────────────────────────────────── -->
+    <div class="folder-tab-area">
+        <div class="folder-tabs" role="tablist">
+            <button type="button" class="folder-tab" data-tab="accommodation" role="tab">Accommodation</button>
+            <button type="button" class="folder-tab" data-tab="tier" role="tab">Tier</button>
+            <button type="button" class="folder-tab" data-tab="pet_category" role="tab">Pet Category</button>
+            <button type="button" class="folder-tab" data-tab="service" role="tab">Service</button>
+            <button type="button" class="folder-tab" data-tab="account" role="tab">My Account</button>
+        </div>
 
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-header-left">
-                    <div class="panel-icon">
-                        <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        <!-- ─── FOLDER CONTENT AREA ─────────────────────── -->
+        <div class="folder-content-wrap">
+
+            <!-- ─────────────── TAB: ACCOMMODATION ─────────────── -->
+            <div id="panel-accommodation" class="tab-panel">
+                <?php if ($activeTab === 'accommodation' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Accommodation updated successfully.
                     </div>
-                    <div>
-                        <div class="panel-heading">Pet Tiers</div>
-                        <div class="panel-subtext"><?php echo count($activeTiers); ?> active tier(s)</div>
+                <?php endif; ?>
+                <?php if ($formErrors['accommodation']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['accommodation']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-header-left">
+                            <div class="panel-icon">
+                                <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                            </div>
+                            <div>
+                                <div class="panel-heading">Accommodation Units</div>
+                                <div class="panel-subtext"><?php echo count($accommodations); ?> unit(s) registered</div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="openAddAccommodation">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            Add Unit
+                        </button>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Unit Name</th>
+                                    <th>Type</th>
+                                    <th>Tier</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($accommodations as $unit): ?>
+                                <?php
+                                    $badgeClass = 'badge-maintenance'; $dotClass = 'dot-maintenance';
+                                    if ($unit['OCCUPANCY_STATUS'] === 'Available') { $badgeClass = 'badge-available'; $dotClass = 'dot-available'; }
+                                    elseif ($unit['OCCUPANCY_STATUS'] === 'Booked') { $badgeClass = 'badge-booked'; $dotClass = 'dot-booked'; }
+                                ?>
+                                <tr>
+                                    <td><strong><?php echo escape($unit['UNIT_NAME']); ?></strong></td>
+                                    <td><?php echo escape($unit['ACCOMMODATION_TYPE']); ?></td>
+                                    <td><?php echo escape($unit['TIER_NAME']); ?></td>
+                                    <td>
+                                        <span class="status-badge <?php echo $badgeClass; ?>">
+                                            <span class="status-dot <?php echo $dotClass; ?>"></span>
+                                            <?php echo escape($unit['OCCUPANCY_STATUS']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="td-actions">
+                                            <button type="button" class="btn btn-ghost btn-sm edit-accommodation"
+                                                data-id="<?php echo escape($unit['ACCOMMODATION_ID']); ?>"
+                                                data-unit="<?php echo escape($unit['UNIT_NAME']); ?>"
+                                                data-type="<?php echo escape($unit['ACCOMMODATION_TYPE']); ?>"
+                                                data-tier="<?php echo escape($unit['TIER_ID']); ?>"
+                                                data-status="<?php echo escape($unit['OCCUPANCY_STATUS']); ?>">
+                                                Edit
+                                            </button>
+                                            <?php if ($unit['OCCUPANCY_STATUS'] !== 'Under Maintenance'): ?>
+                                            <form method="POST" action="user_management.php?tab=accommodation" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_accommodation">
+                                                <input type="hidden" name="accommodation_id" value="<?php echo escape($unit['ACCOMMODATION_ID']); ?>">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Put this unit under maintenance?');">Deactivate</button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($accommodations)): ?>
+                                <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No accommodation units yet. Add one to get started.</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                <div style="display:flex;gap:10px;align-items:center;">
+            </div>
+
+            <!-- ─────────────── TAB: TIER ─────────────── -->
+            <div id="panel-tier" class="tab-panel" style="display:none;">
+                <?php if ($activeTab === 'tier' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Tier updated successfully.
+                    </div>
+                <?php endif; ?>
+                <?php if ($formErrors['tier']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['tier']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-header-left">
+                            <div class="panel-icon">
+                                <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                            </div>
+                            <div>
+                                <div class="panel-heading">Pet Tiers</div>
+                                <div class="panel-subtext"><?php echo count($activeTiers); ?> active tier(s)</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <?php if ($supportsStatus['TIER']): ?>
+                                <button type="button" class="show-inactive-btn" id="toggleTierInactive">Show Inactive</button>
+                            <?php endif; ?>
+                            <button type="button" class="btn btn-primary" id="openAddTier">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                                Add Tier
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Tier</th>
+                                    <th>Description</th>
+                                    <th>Weight Range</th>
+                                    <th>Daily Rate</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($activeTiers as $tier): ?>
+                                <tr>
+                                    <td><strong><?php echo escape($tier['TIER_NAME']); ?></strong></td>
+                                    <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
+                                    <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
+                                    <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
+                                    <td>
+                                        <div class="td-actions">
+                                            <button type="button" class="btn btn-ghost btn-sm edit-tier"
+                                                data-id="<?php echo escape($tier['TIER_ID']); ?>"
+                                                data-name="<?php echo escape($tier['TIER_NAME']); ?>"
+                                                data-description="<?php echo escape($tier['TIER_DESCRIPTION']); ?>"
+                                                data-min="<?php echo escape($tier['WEIGHT_MIN']); ?>"
+                                                data-max="<?php echo escape($tier['WEIGHT_MAX']); ?>"
+                                                data-rate="<?php echo escape($tier['DAILY_RATE']); ?>"
+                                                data-status="<?php echo escape($tier['STATUS'] ?? 'Active'); ?>">
+                                                Edit
+                                            </button>
+                                            <?php if ($supportsStatus['TIER']): ?>
+                                            <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_tier">
+                                                <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
+                                                <input type="hidden" name="status" value="Inactive">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this tier?');">Deactivate</button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($activeTiers)): ?>
+                                <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No tiers found.</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
                     <?php if ($supportsStatus['TIER']): ?>
-                        <button type="button" class="show-inactive-btn" id="toggleTierInactive">Show Inactive</button>
-                    <?php endif; ?>
-                    <button type="button" class="btn btn-primary" id="openAddTier">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                        Add Tier
-                    </button>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Tier</th>
-                            <th>Description</th>
-                            <th>Weight Range</th>
-                            <th>Daily Rate</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($activeTiers as $tier): ?>
-                        <tr>
-                            <td><strong><?php echo escape($tier['TIER_NAME']); ?></strong></td>
-                            <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
-                            <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
-                            <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
-                            <td>
-                                <div class="td-actions">
-                                    <button type="button" class="btn btn-ghost btn-sm edit-tier"
-                                        data-id="<?php echo escape($tier['TIER_ID']); ?>"
-                                        data-name="<?php echo escape($tier['TIER_NAME']); ?>"
-                                        data-description="<?php echo escape($tier['TIER_DESCRIPTION']); ?>"
-                                        data-min="<?php echo escape($tier['WEIGHT_MIN']); ?>"
-                                        data-max="<?php echo escape($tier['WEIGHT_MAX']); ?>"
-                                        data-rate="<?php echo escape($tier['DAILY_RATE']); ?>"
-                                        data-status="<?php echo escape($tier['STATUS'] ?? 'Active'); ?>">
-                                        Edit
-                                    </button>
-                                    <?php if ($supportsStatus['TIER']): ?>
-                                    <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_tier">
-                                        <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
-                                        <input type="hidden" name="status" value="Inactive">
-                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this tier?');">Deactivate</button>
-                                    </form>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (empty($activeTiers)): ?>
-                        <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No tiers found.</td></tr>
-                    <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <?php if ($supportsStatus['TIER']): ?>
-            <div class="inactive-section hidden" id="tierInactiveSection">
-                <div class="inactive-section-title">Inactive Tiers</div>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Tier</th><th>Description</th><th>Weight Range</th><th>Daily Rate</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($inactiveTiers as $tier): ?>
-                            <tr>
-                                <td><?php echo escape($tier['TIER_NAME']); ?></td>
-                                <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
-                                <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
-                                <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
-                                <td>
-                                    <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_tier">
-                                        <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
-                                        <input type="hidden" name="status" value="Active">
-                                        <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if (empty($inactiveTiers)): ?>
-                            <tr><td colspan="5" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive tiers.</td></tr>
-                        <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- ─────────────── TAB: PET CATEGORY ─────────────── -->
-    <div id="panel-pet_category" class="tab-panel" style="display:none;">
-        <?php if ($activeTab === 'pet_category' && $success): ?>
-            <div class="alert alert-success">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                Pet category updated successfully.
-            </div>
-        <?php endif; ?>
-        <?php if ($formErrors['pet_category']): ?>
-            <div class="alert alert-error">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                <?php echo escape($formErrors['pet_category']); ?>
-            </div>
-        <?php endif; ?>
-
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-header-left">
-                    <div class="panel-icon">
-                        <svg viewBox="0 0 24 24"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
-                    </div>
-                    <div>
-                        <div class="panel-heading">Pet Categories</div>
-                        <div class="panel-subtext"><?php echo count($activeCategories); ?> active categor<?php echo count($activeCategories) === 1 ? 'y' : 'ies'; ?></div>
-                    </div>
-                </div>
-                <div style="display:flex;gap:10px;align-items:center;">
-                    <?php if ($supportsStatus['PET_CATEGORY']): ?>
-                        <button type="button" class="show-inactive-btn" id="toggleCategoryInactive">Show Inactive</button>
-                    <?php endif; ?>
-                    <button type="button" class="btn btn-primary" id="openAddCategory">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                        Add Category
-                    </button>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr><th>Category</th><th>Species Notes</th><th>Actions</th></tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($activeCategories as $cat): ?>
-                        <tr>
-                            <td><strong><?php echo escape($cat['CATEGORY_NAME']); ?></strong></td>
-                            <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
-                            <td>
-                                <div class="td-actions">
-                                    <button type="button" class="btn btn-ghost btn-sm edit-category"
-                                        data-id="<?php echo escape($cat['CATEGORY_ID']); ?>"
-                                        data-name="<?php echo escape($cat['CATEGORY_NAME']); ?>"
-                                        data-notes="<?php echo escape($cat['SPECIES_NOTES']); ?>"
-                                        data-status="<?php echo escape($cat['STATUS'] ?? 'Active'); ?>">
-                                        Edit
-                                    </button>
-                                    <?php if ($supportsStatus['PET_CATEGORY']): ?>
-                                    <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_pet_category">
-                                        <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
-                                        <input type="hidden" name="status" value="Inactive">
-                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this category?');">Deactivate</button>
-                                    </form>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (empty($activeCategories)): ?>
-                        <tr><td colspan="3" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No categories found.</td></tr>
-                    <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <?php if ($supportsStatus['PET_CATEGORY']): ?>
-            <div class="inactive-section hidden" id="categoryInactiveSection">
-                <div class="inactive-section-title">Inactive Categories</div>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead><tr><th>Category</th><th>Species Notes</th><th>Actions</th></tr></thead>
-                        <tbody>
-                        <?php foreach ($inactiveCategories as $cat): ?>
-                            <tr>
-                                <td><?php echo escape($cat['CATEGORY_NAME']); ?></td>
-                                <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
-                                <td>
-                                    <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_pet_category">
-                                        <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
-                                        <input type="hidden" name="status" value="Active">
-                                        <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if (empty($inactiveCategories)): ?>
-                            <tr><td colspan="3" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive categories.</td></tr>
-                        <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- ─────────────── TAB: SERVICE ─────────────── -->
-    <div id="panel-service" class="tab-panel" style="display:none;">
-        <?php if ($activeTab === 'service' && $success): ?>
-            <div class="alert alert-success">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                Service updated successfully.
-            </div>
-        <?php endif; ?>
-        <?php if ($formErrors['service']): ?>
-            <div class="alert alert-error">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                <?php echo escape($formErrors['service']); ?>
-            </div>
-        <?php endif; ?>
-
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-header-left">
-                    <div class="panel-icon">
-                        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-                    </div>
-                    <div>
-                        <div class="panel-heading">Services</div>
-                        <div class="panel-subtext"><?php echo count($activeServices); ?> active service(s)</div>
-                    </div>
-                </div>
-                <div style="display:flex;gap:10px;align-items:center;">
-                    <?php if ($supportsStatus['SERVICE']): ?>
-                        <button type="button" class="show-inactive-btn" id="toggleServiceInactive">Show Inactive</button>
-                    <?php endif; ?>
-                    <button type="button" class="btn btn-primary" id="openAddService">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                        Add Service
-                    </button>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr><th>Service Name</th><th>Description</th><th>Price</th><th>Actions</th></tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($activeServices as $svc): ?>
-                        <tr>
-                            <td><strong><?php echo escape($svc['SERVICE_NAME']); ?></strong></td>
-                            <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
-                            <td>
-                                <?php if ((float)$svc['PRICE'] === 0.0): ?>
-                                    <span class="status-badge badge-free">FREE</span>
-                                <?php else: ?>
-                                    ₱<?php echo escape(number_format($svc['PRICE'], 2)); ?>
+                    <div class="inactive-section hidden" id="tierInactiveSection">
+                        <div class="inactive-section-title">Inactive Tiers</div>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                    <tr><th>Tier</th><th>Description</th><th>Weight Range</th><th>Daily Rate</th><th>Actions</th></tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($inactiveTiers as $tier): ?>
+                                    <tr>
+                                        <td><?php echo escape($tier['TIER_NAME']); ?></td>
+                                        <td><?php echo escape($tier['TIER_DESCRIPTION']); ?></td>
+                                        <td><?php echo escape(number_format($tier['WEIGHT_MIN'], 2)); ?> – <?php echo escape(number_format($tier['WEIGHT_MAX'], 2)); ?> kg</td>
+                                        <td>₱<?php echo escape(number_format($tier['DAILY_RATE'], 2)); ?></td>
+                                        <td>
+                                            <form method="POST" action="user_management.php?tab=tier" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_tier">
+                                                <input type="hidden" name="tier_id" value="<?php echo escape($tier['TIER_ID']); ?>">
+                                                <input type="hidden" name="status" value="Active">
+                                                <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (empty($inactiveTiers)): ?>
+                                    <tr><td colspan="5" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive tiers.</td></tr>
                                 <?php endif; ?>
-                            </td>
-                            <td>
-                                <div class="td-actions">
-                                    <button type="button" class="btn btn-ghost btn-sm edit-service"
-                                        data-id="<?php echo escape($svc['SERVICE_ID']); ?>"
-                                        data-name="<?php echo escape($svc['SERVICE_NAME']); ?>"
-                                        data-desc="<?php echo escape($svc['SERVICE_DESCRIPTION']); ?>"
-                                        data-price="<?php echo escape($svc['PRICE']); ?>"
-                                        data-status="<?php echo escape($svc['STATUS'] ?? 'Active'); ?>">
-                                        Edit
-                                    </button>
-                                    <?php if ($supportsStatus['SERVICE']): ?>
-                                    <form method="POST" action="user_management.php?tab=service" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_service">
-                                        <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
-                                        <input type="hidden" name="status" value="Inactive">
-                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this service?');">Deactivate</button>
-                                    </form>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (empty($activeServices)): ?>
-                        <tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No services found.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                     <?php endif; ?>
-                    </tbody>
-                </table>
+                </div>
             </div>
 
-            <?php if ($supportsStatus['SERVICE']): ?>
-            <div class="inactive-section hidden" id="serviceInactiveSection">
-                <div class="inactive-section-title">Inactive Services</div>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead><tr><th>Service Name</th><th>Description</th><th>Price</th><th>Actions</th></tr></thead>
-                        <tbody>
-                        <?php foreach ($inactiveServices as $svc): ?>
-                            <tr>
-                                <td><?php echo escape($svc['SERVICE_NAME']); ?></td>
-                                <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
-                                <td>
-                                    <?php if ((float)$svc['PRICE'] === 0.0): ?>
-                                        <span class="status-badge badge-free">FREE</span>
-                                    <?php else: ?>
-                                        ₱<?php echo escape(number_format($svc['PRICE'], 2)); ?>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <form method="POST" action="user_management.php?tab=service" style="display:inline;">
-                                        <input type="hidden" name="action" value="deactivate_service">
-                                        <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
-                                        <input type="hidden" name="status" value="Active">
-                                        <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if (empty($inactiveServices)): ?>
-                            <tr><td colspan="4" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive services.</td></tr>
+            <!-- ─────────────── TAB: PET CATEGORY ─────────────── -->
+            <div id="panel-pet_category" class="tab-panel" style="display:none;">
+                <?php if ($activeTab === 'pet_category' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Pet category updated successfully.
+                    </div>
+                <?php endif; ?>
+                <?php if ($formErrors['pet_category']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['pet_category']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-header-left">
+                            <div class="panel-icon">
+                                <svg viewBox="0 0 24 24"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
+                            </div>
+                            <div>
+                                <div class="panel-heading">Pet Categories</div>
+                                <div class="panel-subtext"><?php echo count($activeCategories); ?> active categor<?php echo count($activeCategories) === 1 ? 'y' : 'ies'; ?></div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <?php if ($supportsStatus['PET_CATEGORY']): ?>
+                                <button type="button" class="show-inactive-btn" id="toggleCategoryInactive">Show Inactive</button>
+                            <?php endif; ?>
+                            <button type="button" class="btn btn-primary" id="openAddCategory">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                                Add Category
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Category</th><th>Species Notes</th><th>Actions</th></tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($activeCategories as $cat): ?>
+                                <tr>
+                                    <td><strong><?php echo escape($cat['CATEGORY_NAME']); ?></strong></td>
+                                    <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
+                                    <td>
+                                        <div class="td-actions">
+                                            <button type="button" class="btn btn-ghost btn-sm edit-category"
+                                                data-id="<?php echo escape($cat['CATEGORY_ID']); ?>"
+                                                data-name="<?php echo escape($cat['CATEGORY_NAME']); ?>"
+                                                data-notes="<?php echo escape($cat['SPECIES_NOTES']); ?>"
+                                                data-status="<?php echo escape($cat['STATUS'] ?? 'Active'); ?>">
+                                                Edit
+                                            </button>
+                                            <?php if ($supportsStatus['PET_CATEGORY']): ?>
+                                            <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_pet_category">
+                                                <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
+                                                <input type="hidden" name="status" value="Inactive">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this category?');">Deactivate</button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($activeCategories)): ?>
+                                <tr><td colspan="3" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No categories found.</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <?php if ($supportsStatus['PET_CATEGORY']): ?>
+                    <div class="inactive-section hidden" id="categoryInactiveSection">
+                        <div class="inactive-section-title">Inactive Categories</div>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead><tr><th>Category</th><th>Species Notes</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($inactiveCategories as $cat): ?>
+                                    <tr>
+                                        <td><?php echo escape($cat['CATEGORY_NAME']); ?></td>
+                                        <td><?php echo escape($cat['SPECIES_NOTES']); ?></td>
+                                        <td>
+                                            <form method="POST" action="user_management.php?tab=pet_category" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_pet_category">
+                                                <input type="hidden" name="category_id" value="<?php echo escape($cat['CATEGORY_ID']); ?>">
+                                                <input type="hidden" name="status" value="Active">
+                                                <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (empty($inactiveCategories)): ?>
+                                    <tr><td colspan="3" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive categories.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- ─────────────── TAB: SERVICE ─────────────── -->
+            <div id="panel-service" class="tab-panel" style="display:none;">
+                <?php if ($activeTab === 'service' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Service updated successfully.
+                    </div>
+                <?php endif; ?>
+                <?php if ($formErrors['service']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['service']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-header-left">
+                            <div class="panel-icon">
+                                <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                            </div>
+                            <div>
+                                <div class="panel-heading">Services</div>
+                                <div class="panel-subtext"><?php echo count($activeServices); ?> active service(s)</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <?php if ($supportsStatus['SERVICE']): ?>
+                                <button type="button" class="show-inactive-btn" id="toggleServiceInactive">Show Inactive</button>
+                            <?php endif; ?>
+                            <button type="button" class="btn btn-primary" id="openAddService">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                                Add Service
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Service Name</th><th>Description</th><th>Price</th><th>Actions</th></tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($activeServices as $svc): ?>
+                                <tr>
+                                    <td><strong><?php echo escape($svc['SERVICE_NAME']); ?></strong></td>
+                                    <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
+                                    <td>
+                                        <?php if ((float)$svc['PRICE'] === 0.0): ?>
+                                            <span class="status-badge badge-free">FREE</span>
+                                        <?php else: ?>
+                                            ₱<?php echo escape(number_format($svc['PRICE'], 2)); ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <div class="td-actions">
+                                            <button type="button" class="btn btn-ghost btn-sm edit-service"
+                                                data-id="<?php echo escape($svc['SERVICE_ID']); ?>"
+                                                data-name="<?php echo escape($svc['SERVICE_NAME']); ?>"
+                                                data-desc="<?php echo escape($svc['SERVICE_DESCRIPTION']); ?>"
+                                                data-price="<?php echo escape($svc['PRICE']); ?>"
+                                                data-status="<?php echo escape($svc['STATUS'] ?? 'Active'); ?>">
+                                                Edit
+                                            </button>
+                                            <?php if ($supportsStatus['SERVICE']): ?>
+                                            <form method="POST" action="user_management.php?tab=service" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_service">
+                                                <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
+                                                <input type="hidden" name="status" value="Inactive">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deactivate this service?');">Deactivate</button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($activeServices)): ?>
+                                <tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No services found.</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <?php if ($supportsStatus['SERVICE']): ?>
+                    <div class="inactive-section hidden" id="serviceInactiveSection">
+                        <div class="inactive-section-title">Inactive Services</div>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead><tr><th>Service Name</th><th>Description</th><th>Price</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($inactiveServices as $svc): ?>
+                                    <tr>
+                                        <td><?php echo escape($svc['SERVICE_NAME']); ?></td>
+                                        <td><?php echo escape($svc['SERVICE_DESCRIPTION']); ?></td>
+                                        <td>
+                                            <?php if ((float)$svc['PRICE'] === 0.0): ?>
+                                                <span class="status-badge badge-free">FREE</span>
+                                            <?php else: ?>
+                                                ₱<?php echo escape(number_format($svc['PRICE'], 2)); ?>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <form method="POST" action="user_management.php?tab=service" style="display:inline;">
+                                                <input type="hidden" name="action" value="deactivate_service">
+                                                <input type="hidden" name="service_id" value="<?php echo escape($svc['SERVICE_ID']); ?>">
+                                                <input type="hidden" name="status" value="Active">
+                                                <button type="submit" class="btn btn-primary btn-sm">Reactivate</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (empty($inactiveServices)): ?>
+                                    <tr><td colspan="4" style="text-align:center;padding:24px;color:rgba(34,34,34,0.4);">No inactive services.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- ─────────────── TAB: MY ACCOUNT ─────────────── -->
+            <div id="panel-account" class="tab-panel" style="display:none;">
+                <?php if ($activeTab === 'account' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Account settings saved successfully.
+                    </div>
+                <?php endif; ?>
+
+                <!-- Account Info Card -->
+                <div class="account-info-card">
+                    <div class="account-info-header">
+                        <div class="account-avatar-large"><?php echo strtoupper(substr($currentUser['USERNAME'] ?? 'A', 0, 1)); ?></div>
+                        <div>
+                            <div class="account-info-name"><?php echo escape($currentUser['USERNAME']); ?></div>
+                            <div class="account-info-role"><?php echo escape($currentUser['GROUP_NAME']); ?></div>
+                        </div>
+                    </div>
+                    <div class="account-meta-grid">
+                        <div class="account-meta-item">
+                            <div class="account-meta-label">Employee Username</div>
+                            <div class="account-meta-value"><?php echo escape($currentUser['EMPLOYEE_USERNAME']); ?></div>
+                        </div>
+                        <div class="account-meta-item">
+                            <div class="account-meta-label">Account Status</div>
+                            <div class="account-meta-value <?php echo $currentUser['ACCOUNT_STATUS'] === 'Active' ? 'account-status-active' : 'account-status-inactive'; ?>">
+                                <?php echo escape($currentUser['ACCOUNT_STATUS']); ?>
+                            </div>
+                        </div>
+                        <div class="account-meta-item">
+                            <div class="account-meta-label">Role / Group</div>
+                            <div class="account-meta-value"><?php echo escape($currentUser['GROUP_NAME']); ?></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="account-grid" style="margin-top:20px;">
+                    <!-- Edit Username -->
+                    <div class="panel">
+                        <div class="panel-header" style="margin-bottom:20px;">
+                            <div class="panel-header-left">
+                                <div class="panel-icon">
+                                    <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>
+                                </div>
+                                <div class="panel-heading">Edit Username</div>
+                            </div>
+                        </div>
+                        <?php if ($formErrors['account']): ?>
+                            <div class="alert alert-error">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                                <?php echo escape($formErrors['account']); ?>
+                            </div>
                         <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- ─────────────── TAB: MY ACCOUNT ─────────────── -->
-    <div id="panel-account" class="tab-panel" style="display:none;">
-        <?php if ($activeTab === 'account' && $success): ?>
-            <div class="alert alert-success">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                Account settings saved successfully.
-            </div>
-        <?php endif; ?>
-
-        <!-- Account Info Card -->
-        <div class="account-info-card">
-            <div class="account-info-header">
-                <div class="account-avatar-large"><?php echo strtoupper(substr($currentUser['USERNAME'] ?? 'A', 0, 1)); ?></div>
-                <div>
-                    <div class="account-info-name"><?php echo escape($currentUser['USERNAME']); ?></div>
-                    <div class="account-info-role"><?php echo escape($currentUser['GROUP_NAME']); ?></div>
-                </div>
-            </div>
-            <div class="account-meta-grid">
-                <div class="account-meta-item">
-                    <div class="account-meta-label">Employee Username</div>
-                    <div class="account-meta-value"><?php echo escape($currentUser['EMPLOYEE_USERNAME']); ?></div>
-                </div>
-                <div class="account-meta-item">
-                    <div class="account-meta-label">Account Status</div>
-                    <div class="account-meta-value <?php echo $currentUser['ACCOUNT_STATUS'] === 'Active' ? 'account-status-active' : 'account-status-inactive'; ?>">
-                        <?php echo escape($currentUser['ACCOUNT_STATUS']); ?>
+                        <form method="POST" action="user_management.php" class="form-grid">
+                            <div>
+                                <label class="field-label" for="account_username">New Username</label>
+                                <input type="text" id="account_username" name="username" value="<?php echo escape($currentUser['USERNAME']); ?>" required>
+                            </div>
+                            <input type="hidden" name="action" value="update_username">
+                            <input type="hidden" name="tab" value="account">
+                            <div>
+                                <button type="submit" class="btn btn-primary">Save Username</button>
+                            </div>
+                        </form>
                     </div>
-                </div>
-                <div class="account-meta-item">
-                    <div class="account-meta-label">Role / Group</div>
-                    <div class="account-meta-value"><?php echo escape($currentUser['GROUP_NAME']); ?></div>
-                </div>
-            </div>
-        </div>
 
-        <div class="account-grid">
-            <!-- Edit Username -->
-            <div class="panel">
-                <div class="panel-header" style="margin-bottom:20px;">
-                    <div class="panel-header-left">
-                        <div class="panel-icon">
-                            <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>
+                    <!-- Change Password -->
+                    <div class="panel">
+                        <div class="panel-header" style="margin-bottom:20px;">
+                            <div class="panel-header-left">
+                                <div class="panel-icon">
+                                    <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                                </div>
+                                <div class="panel-heading">Change Password</div>
+                            </div>
                         </div>
-                        <div class="panel-heading">Edit Username</div>
+                        <?php if ($formErrors['password']): ?>
+                            <div class="alert alert-error">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                                <?php echo escape($formErrors['password']); ?>
+                            </div>
+                        <?php endif; ?>
+                        <form method="POST" action="user_management.php" class="form-grid">
+                            <div>
+                                <label class="field-label" for="current_password">Current Password</label>
+                                <input type="password" id="current_password" name="current_password" required>
+                            </div>
+                            <div>
+                                <label class="field-label" for="new_password">New Password</label>
+                                <input type="password" id="new_password" name="new_password" required>
+                            </div>
+                            <div>
+                                <label class="field-label" for="confirm_password">Confirm New Password</label>
+                                <input type="password" id="confirm_password" name="confirm_password" required>
+                            </div>
+                            <input type="hidden" name="action" value="change_password">
+                            <input type="hidden" name="tab" value="account">
+                            <div>
+                                <button type="submit" class="btn btn-primary">Change Password</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
-                <?php if ($formErrors['account']): ?>
-                    <div class="alert alert-error">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                        <?php echo escape($formErrors['account']); ?>
-                    </div>
-                <?php endif; ?>
-                <form method="POST" action="user_management.php" class="form-grid">
-                    <div>
-                        <label class="field-label" for="account_username">New Username</label>
-                        <input type="text" id="account_username" name="username" value="<?php echo escape($currentUser['USERNAME']); ?>" required>
-                    </div>
-                    <input type="hidden" name="action" value="update_username">
-                    <input type="hidden" name="tab" value="account">
-                    <div>
-                        <button type="submit" class="btn btn-primary">Save Username</button>
-                    </div>
-                </form>
             </div>
 
-            <!-- Change Password -->
-            <div class="panel">
-                <div class="panel-header" style="margin-bottom:20px;">
-                    <div class="panel-header-left">
-                        <div class="panel-icon">
-                            <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
-                        </div>
-                        <div class="panel-heading">Change Password</div>
-                    </div>
-                </div>
-                <?php if ($formErrors['password']): ?>
-                    <div class="alert alert-error">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                        <?php echo escape($formErrors['password']); ?>
-                    </div>
-                <?php endif; ?>
-                <form method="POST" action="user_management.php" class="form-grid">
-                    <div>
-                        <label class="field-label" for="current_password">Current Password</label>
-                        <input type="password" id="current_password" name="current_password" required>
-                    </div>
-                    <div>
-                        <label class="field-label" for="new_password">New Password</label>
-                        <input type="password" id="new_password" name="new_password" required>
-                    </div>
-                    <div>
-                        <label class="field-label" for="confirm_password">Confirm New Password</label>
-                        <input type="password" id="confirm_password" name="confirm_password" required>
-                    </div>
-                    <input type="hidden" name="action" value="change_password">
-                    <input type="hidden" name="tab" value="account">
-                    <div>
-                        <button type="submit" class="btn btn-primary">Change Password</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+        </div><!-- /.folder-content-wrap -->
+    </div><!-- /.folder-tab-area -->
 
 </main>
 
@@ -1623,7 +1759,7 @@ foreach ($activeTiers as $tier) {
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
 
     /* ── TAB SWITCHING ──────────────────────────────── */
-    const tabs   = document.querySelectorAll('.tab-btn');
+    const tabs   = document.querySelectorAll('.folder-tab');
     const panels = document.querySelectorAll('.tab-panel');
 
     function showTab(name) {
@@ -1638,6 +1774,20 @@ foreach ($activeTiers as $tier) {
 
     tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab.dataset.tab)));
     showTab(initialTab);
+
+    /* ── PROFILE CIRCLE → My Account tab ───────────── */
+    const profileCircleBtn = document.getElementById('profileCircleBtn');
+    if (profileCircleBtn) {
+        profileCircleBtn.addEventListener('click', function () {
+            showTab('account');
+        });
+        profileCircleBtn.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                showTab('account');
+            }
+        });
+    }
 
     /* ── UNIT NAME AUTO-GENERATION (in modal) ───────── */
     function setupUnitNameGeneration() {
@@ -1674,7 +1824,6 @@ foreach ($activeTiers as $tier) {
 
     /* ── ADD — TIER ─────────────────────────────────── */
     document.getElementById('openAddTier').addEventListener('click', function () {
-        const statusField = supportsStatusTier ? '' : '';
         openModal('New Tier', `
             <form method="POST" action="user_management.php?tab=tier" class="form-grid">
                 <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
