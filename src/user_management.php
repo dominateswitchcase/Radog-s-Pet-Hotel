@@ -41,6 +41,17 @@ function getNextId(PDO $pdo, $table, $column) {
     return (int) $stmt->fetchColumn();
 }
 
+/**
+ * Auto-generate Employee ID starting from 13.
+ * Ensures the ID is at least 13 and is unique.
+ */
+function getNextEmployeeId(PDO $pdo) {
+    $stmt = $pdo->query("SELECT NVL(MAX(EMPLOYEE_ID), 12) + 1 FROM EMPLOYEE");
+    $nextId = (int) $stmt->fetchColumn();
+    // Enforce minimum starting value of 13
+    return max($nextId, 13);
+}
+
 $supportsStatus = [
     'TIER'         => columnExists($pdo, 'TIER', 'STATUS'),
     'PET_CATEGORY' => columnExists($pdo, 'PET_CATEGORY', 'STATUS'),
@@ -66,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action       = trim($_POST['action']);
 
     try {
+        /* ── ACCOMMODATION ─────────────────────────────────── */
         if ($action === 'add_accommodation') {
             $accommodationType = trim($_POST['accommodation_type'] ?? '');
             $tierId            = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
@@ -74,10 +86,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['accommodation'] = 'Please provide an accommodation type and select a tier.';
             } else {
                 $newId  = getNextId($pdo, 'ACCOMMODATION', 'ACCOMMODATION_ID');
+                // FIX: Use positional parameters instead of named params for Oracle PDO OCI reliability
                 $insert = $pdo->prepare(
-                    'INSERT INTO ACCOMMODATION (ACCOMMODATION_ID, UNIT_NAME, ACCOMMODATION_TYPE, OCCUPANCY_STATUS, TIER_ID) VALUES (:id, :unit, :type, :status, :tier)'
+                    'INSERT INTO ACCOMMODATION (ACCOMMODATION_ID, UNIT_NAME, ACCOMMODATION_TYPE, OCCUPANCY_STATUS, TIER_ID) VALUES (?, ?, ?, ?, ?)'
                 );
-                $insert->execute(['id' => $newId, 'unit' => $unitName, 'type' => $accommodationType, 'status' => 'Available', 'tier' => $tierId]);
+                $insert->execute([$newId, $unitName, $accommodationType, 'Available', $tierId]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
@@ -91,9 +104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['accommodation'] = 'Please complete the accommodation update form correctly.';
             } else {
                 $update = $pdo->prepare(
-                    'UPDATE ACCOMMODATION SET ACCOMMODATION_TYPE = :type, TIER_ID = :tier, OCCUPANCY_STATUS = :status WHERE ACCOMMODATION_ID = :id'
+                    'UPDATE ACCOMMODATION SET ACCOMMODATION_TYPE = ?, TIER_ID = ?, OCCUPANCY_STATUS = ? WHERE ACCOMMODATION_ID = ?'
                 );
-                $update->execute(['type' => $accommodationType, 'tier' => $tierId, 'status' => $occupancyStatus, 'id' => $accId]);
+                $update->execute([$accommodationType, $tierId, $occupancyStatus, $accId]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
@@ -102,11 +115,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$accId) {
                 $formErrors['accommodation'] = 'Unable to deactivate accommodation record.';
             } else {
-                $update = $pdo->prepare("UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = 'Under Maintenance' WHERE ACCOMMODATION_ID = :id");
-                $update->execute(['id' => $accId]);
+                $update = $pdo->prepare("UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = 'Under Maintenance' WHERE ACCOMMODATION_ID = ?");
+                $update->execute([$accId]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
+
+        /* ── TIER ──────────────────────────────────────────── */
         } elseif ($action === 'add_tier') {
             $tierName    = trim($_POST['tier_name'] ?? '');
             $description = trim($_POST['tier_description'] ?? '');
@@ -117,12 +132,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['tier'] = 'Please complete the tier form and ensure Weight Max is greater than Weight Min.';
             } else {
                 $newId = getNextId($pdo, 'TIER', 'TIER_ID');
+                // FIX: Use positional ? params — Oracle PDO OCI does not support named bind params with colons reliably
                 if ($supportsStatus['TIER']) {
-                    $insert = $pdo->prepare("INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS) VALUES (:id, :name, :desc, :min, :max, :rate, 'Active')");
+                    $insert = $pdo->prepare("INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    $insert->execute([$newId, $tierName, $description, $weightMin, $weightMax, $dailyRate, 'Active']);
                 } else {
-                    $insert = $pdo->prepare('INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE) VALUES (:id, :name, :desc, :min, :max, :rate)');
+                    $insert = $pdo->prepare('INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE) VALUES (?, ?, ?, ?, ?, ?)');
+                    $insert->execute([$newId, $tierName, $description, $weightMin, $weightMax, $dailyRate]);
                 }
-                $insert->execute(['id' => $newId, 'name' => $tierName, 'desc' => $description, 'min' => $weightMin, 'max' => $weightMax, 'rate' => $dailyRate]);
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
             }
@@ -137,15 +154,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$tierId || $tierName === '' || $weightMin === false || $weightMax === false || $dailyRate === false || $weightMax <= $weightMin) {
                 $formErrors['tier'] = 'Please complete the tier update form and ensure the weight range is valid.';
             } else {
-                $setFields = 'TIER_NAME = :name, TIER_DESCRIPTION = :desc, WEIGHT_MIN = :min, WEIGHT_MAX = :max, DAILY_RATE = :rate';
-                if ($supportsStatus['TIER']) { $setFields .= ', STATUS = :status'; }
-                $sql    = "UPDATE TIER SET $setFields WHERE TIER_ID = :id";
-                $update = $pdo->prepare($sql);
-                $params = ['name' => $tierName, 'desc' => $description, 'min' => $weightMin, 'max' => $weightMax, 'rate' => $dailyRate, 'id' => $tierId];
                 if ($supportsStatus['TIER']) {
-                    $params['status'] = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
+                    $statusValue = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
+                    $update = $pdo->prepare('UPDATE TIER SET TIER_NAME = ?, TIER_DESCRIPTION = ?, WEIGHT_MIN = ?, WEIGHT_MAX = ?, DAILY_RATE = ?, STATUS = ? WHERE TIER_ID = ?');
+                    $update->execute([$tierName, $description, $weightMin, $weightMax, $dailyRate, $statusValue, $tierId]);
+                } else {
+                    $update = $pdo->prepare('UPDATE TIER SET TIER_NAME = ?, TIER_DESCRIPTION = ?, WEIGHT_MIN = ?, WEIGHT_MAX = ?, DAILY_RATE = ? WHERE TIER_ID = ?');
+                    $update->execute([$tierName, $description, $weightMin, $weightMax, $dailyRate, $tierId]);
                 }
-                $update->execute($params);
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
             }
@@ -156,11 +172,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['tier'] = 'Unable to update tier status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update      = $pdo->prepare('UPDATE TIER SET STATUS = :status WHERE TIER_ID = :id');
-                $update->execute(['status' => $statusValue, 'id' => $tierId]);
+                $update = $pdo->prepare('UPDATE TIER SET STATUS = ? WHERE TIER_ID = ?');
+                $update->execute([$statusValue, $tierId]);
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
             }
+
+        /* ── PET CATEGORY ──────────────────────────────────── */
         } elseif ($action === 'add_pet_category') {
             $categoryName = trim($_POST['category_name'] ?? '');
             $speciesNotes = trim($_POST['species_notes'] ?? '');
@@ -169,11 +187,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 $newId = getNextId($pdo, 'PET_CATEGORY', 'CATEGORY_ID');
                 if ($supportsStatus['PET_CATEGORY']) {
-                    $insert = $pdo->prepare("INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS) VALUES (:id, :name, :notes, 'Active')");
+                    $insert = $pdo->prepare("INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS) VALUES (?, ?, ?, ?)");
+                    $insert->execute([$newId, $categoryName, $speciesNotes, 'Active']);
                 } else {
-                    $insert = $pdo->prepare('INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES) VALUES (:id, :name, :notes)');
+                    $insert = $pdo->prepare('INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES) VALUES (?, ?, ?)');
+                    $insert->execute([$newId, $categoryName, $speciesNotes]);
                 }
-                $insert->execute(['id' => $newId, 'name' => $categoryName, 'notes' => $speciesNotes]);
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
             }
@@ -185,15 +204,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$categoryId || $categoryName === '') {
                 $formErrors['pet_category'] = 'Please complete the category update form.';
             } else {
-                $fields = 'CATEGORY_NAME = :name, SPECIES_NOTES = :notes';
-                if ($supportsStatus['PET_CATEGORY']) { $fields .= ', STATUS = :status'; }
-                $sql    = "UPDATE PET_CATEGORY SET $fields WHERE CATEGORY_ID = :id";
-                $update = $pdo->prepare($sql);
-                $params = ['name' => $categoryName, 'notes' => $speciesNotes, 'id' => $categoryId];
                 if ($supportsStatus['PET_CATEGORY']) {
-                    $params['status'] = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
+                    $statusValue = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
+                    $update = $pdo->prepare('UPDATE PET_CATEGORY SET CATEGORY_NAME = ?, SPECIES_NOTES = ?, STATUS = ? WHERE CATEGORY_ID = ?');
+                    $update->execute([$categoryName, $speciesNotes, $statusValue, $categoryId]);
+                } else {
+                    $update = $pdo->prepare('UPDATE PET_CATEGORY SET CATEGORY_NAME = ?, SPECIES_NOTES = ? WHERE CATEGORY_ID = ?');
+                    $update->execute([$categoryName, $speciesNotes, $categoryId]);
                 }
-                $update->execute($params);
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
             }
@@ -204,11 +222,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['pet_category'] = 'Unable to update category status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update      = $pdo->prepare('UPDATE PET_CATEGORY SET STATUS = :status WHERE CATEGORY_ID = :id');
-                $update->execute(['status' => $statusValue, 'id' => $categoryId]);
+                $update = $pdo->prepare('UPDATE PET_CATEGORY SET STATUS = ? WHERE CATEGORY_ID = ?');
+                $update->execute([$statusValue, $categoryId]);
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
             }
+
+        /* ── SERVICE ───────────────────────────────────────── */
         } elseif ($action === 'add_service') {
             $serviceName        = trim($_POST['service_name'] ?? '');
             $serviceDescription = trim($_POST['service_description'] ?? '');
@@ -217,12 +237,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['service'] = 'Please complete the service form and provide a valid price.';
             } else {
                 $newId = getNextId($pdo, 'SERVICE', 'SERVICE_ID');
+                // FIX: Positional params — avoids ORA-01745 invalid host/bind variable name
                 if ($supportsStatus['SERVICE']) {
-                    $insert = $pdo->prepare("INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS) VALUES (:id, :name, :desc, :price, 'Active')");
+                    $insert = $pdo->prepare("INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS) VALUES (?, ?, ?, ?, ?)");
+                    $insert->execute([$newId, $serviceName, $serviceDescription, $price, 'Active']);
                 } else {
-                    $insert = $pdo->prepare('INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE) VALUES (:id, :name, :desc, :price)');
+                    $insert = $pdo->prepare('INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE) VALUES (?, ?, ?, ?)');
+                    $insert->execute([$newId, $serviceName, $serviceDescription, $price]);
                 }
-                $insert->execute(['id' => $newId, 'name' => $serviceName, 'desc' => $serviceDescription, 'price' => $price]);
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
@@ -235,15 +257,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$serviceId || $serviceName === '' || $price === false || $price < 0) {
                 $formErrors['service'] = 'Please complete the service update form and provide a valid price.';
             } else {
-                $fields = 'SERVICE_NAME = :name, SERVICE_DESCRIPTION = :desc, PRICE = :price';
-                if ($supportsStatus['SERVICE']) { $fields .= ', STATUS = :status'; }
-                $sql    = "UPDATE SERVICE SET $fields WHERE SERVICE_ID = :id";
-                $update = $pdo->prepare($sql);
-                $params = ['name' => $serviceName, 'desc' => $serviceDescription, 'price' => $price, 'id' => $serviceId];
                 if ($supportsStatus['SERVICE']) {
-                    $params['status'] = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
+                    $statusValue = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
+                    $update = $pdo->prepare('UPDATE SERVICE SET SERVICE_NAME = ?, SERVICE_DESCRIPTION = ?, PRICE = ?, STATUS = ? WHERE SERVICE_ID = ?');
+                    $update->execute([$serviceName, $serviceDescription, $price, $statusValue, $serviceId]);
+                } else {
+                    $update = $pdo->prepare('UPDATE SERVICE SET SERVICE_NAME = ?, SERVICE_DESCRIPTION = ?, PRICE = ? WHERE SERVICE_ID = ?');
+                    $update->execute([$serviceName, $serviceDescription, $price, $serviceId]);
                 }
-                $update->execute($params);
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
@@ -254,57 +275,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['service'] = 'Unable to update service status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update      = $pdo->prepare('UPDATE SERVICE SET STATUS = :status WHERE SERVICE_ID = :id');
-                $update->execute(['status' => $statusValue, 'id' => $serviceId]);
+                $update = $pdo->prepare('UPDATE SERVICE SET STATUS = ? WHERE SERVICE_ID = ?');
+                $update->execute([$statusValue, $serviceId]);
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
-        } elseif ($action === 'add_employee') {
-            $empId = filter_var($_POST['employee_id'] ?? '', FILTER_VALIDATE_INT);
-            $empName = trim($_POST['employee_name'] ?? '');
-            $username = trim($_POST['username'] ?? '');
-            $password = trim($_POST['password'] ?? '');
-            $userGroup = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
-            $status = trim($_POST['account_status'] ?? 'Active');
 
-            if (!$empId || $empName === '' || $username === '' || $password === '' || !$userGroup) {
+        /* ── EMPLOYEE / USER ACCOUNT ───────────────────────── */
+        } elseif ($action === 'add_employee') {
+            // FIX: Employee ID is auto-generated — NOT user-defined. Full Name field removed.
+            $username  = trim($_POST['username'] ?? '');
+            $password  = trim($_POST['password'] ?? '');
+            $userGroup = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
+            $status    = trim($_POST['account_status'] ?? 'Active');
+
+            if ($username === '' || $password === '' || !$userGroup) {
                 $formErrors['employee'] = 'Please complete all required fields.';
             } else {
-                $stmt = $pdo->prepare("SELECT COUNT(*) FROM EMPLOYEE WHERE Employee_ID = ?");
-                $stmt->execute([$empId]);
+                // Check for duplicate username
+                $stmt = $pdo->prepare("SELECT COUNT(*) FROM USER_ACCOUNT WHERE Username = ?");
+                $stmt->execute([$username]);
                 if ($stmt->fetchColumn() > 0) {
-                    $formErrors['employee'] = 'Employee ID already exists.';
+                    $formErrors['employee'] = 'Username already exists. Please choose a different one.';
                 } else {
-                    $stmt2 = $pdo->prepare("SELECT COUNT(*) FROM USER_ACCOUNT WHERE Username = ?");
-                    $stmt2->execute([$username]);
-                    if ($stmt2->fetchColumn() > 0) {
-                        $formErrors['employee'] = 'Username already exists.';
-                    } else {
-                        try {
-                            $pdo->beginTransaction();
-                            $hash = password_hash($password, PASSWORD_BCRYPT);
-                            
-                            $insEmp = $pdo->prepare("INSERT INTO EMPLOYEE (Employee_ID, Employee_Username, Password_Hash) VALUES (?, ?, ?)");
-                            $insEmp->execute([$empId, $empName, $hash]);
+                    try {
+                        $pdo->beginTransaction();
 
-                            $accId = getNextId($pdo, 'USER_ACCOUNT', 'ACCOUNT_ID');
-                            $insAcc = $pdo->prepare("INSERT INTO USER_ACCOUNT (Account_ID, Username, Account_Status, Password_Hash, Employee_ID, User_Group_ID) VALUES (?, ?, ?, ?, ?, ?)");
-                            $insAcc->execute([$accId, $username, $status, $hash, $empId, $userGroup]);
+                        // Auto-generate Employee ID starting at 13
+                        $empId = getNextEmployeeId($pdo);
+                        $hash  = password_hash($password, PASSWORD_BCRYPT);
 
-                            $pdo->commit();
-                            header('Location: user_management.php?tab=employee&success=1');
-                            exit();
-                        } catch (Exception $e) {
-                            $pdo->rollBack();
-                            throw $e;
-                        }
+                        // Insert into EMPLOYEE — username stored as Employee_Username (no full name)
+                        $insEmp = $pdo->prepare("INSERT INTO EMPLOYEE (Employee_ID, Employee_Username, Password_Hash) VALUES (?, ?, ?)");
+                        $insEmp->execute([$empId, $username, $hash]);
+
+                        $accId = getNextId($pdo, 'USER_ACCOUNT', 'ACCOUNT_ID');
+
+                        $insAcc = $pdo->prepare("INSERT INTO USER_ACCOUNT (Account_ID, Username, Account_Status, Password_Hash, Employee_ID, User_Group_ID) VALUES (?, ?, ?, ?, ?, ?)");
+                        $insAcc->execute([$accId, $username, $status, $hash, $empId, $userGroup]);
+
+                        $pdo->commit();
+                        header('Location: user_management.php?tab=employee&success=1');
+                        exit();
+                    } catch (Exception $e) {
+                        $pdo->rollBack();
+                        $formErrors['employee'] = 'Database error during user creation: ' . $e->getMessage();
                     }
                 }
             }
         } elseif ($action === 'edit_employee') {
-            $accId = filter_var($_POST['account_id'] ?? '', FILTER_VALIDATE_INT);
+            $accId     = filter_var($_POST['account_id'] ?? '', FILTER_VALIDATE_INT);
             $userGroup = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
-            $status = trim($_POST['account_status'] ?? '');
+            $status    = trim($_POST['account_status'] ?? '');
 
             if (!$accId || !$userGroup || !in_array($status, ['Active', 'Inactive'])) {
                 $formErrors['employee'] = 'Invalid form data provided for account update.';
@@ -314,6 +336,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 header('Location: user_management.php?tab=employee&success=1');
                 exit();
             }
+
+        /* ── ACCOUNT SELF-MANAGEMENT ───────────────────────── */
         } elseif ($action === 'update_username') {
             $username  = trim($_POST['username'] ?? '');
             $accountId = $_SESSION['account_id'];
@@ -321,14 +345,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['account'] = 'Username cannot be blank.';
                 $redirectTab = 'account';
             } else {
-                $stmt = $pdo->prepare('SELECT COUNT(*) FROM USER_ACCOUNT WHERE USERNAME = :username AND ACCOUNT_ID <> :id');
-                $stmt->execute(['username' => $username, 'id' => $accountId]);
+                $stmt = $pdo->prepare('SELECT COUNT(*) FROM USER_ACCOUNT WHERE USERNAME = ? AND ACCOUNT_ID <> ?');
+                $stmt->execute([$username, $accountId]);
                 if ((int) $stmt->fetchColumn() > 0) {
                     $formErrors['account'] = 'That username is already taken.';
                     $redirectTab = 'account';
                 } else {
-                    $update = $pdo->prepare('UPDATE USER_ACCOUNT SET USERNAME = :username WHERE ACCOUNT_ID = :id');
-                    $update->execute(['username' => $username, 'id' => $accountId]);
+                    $update = $pdo->prepare('UPDATE USER_ACCOUNT SET USERNAME = ? WHERE ACCOUNT_ID = ?');
+                    $update->execute([$username, $accountId]);
                     header('Location: user_management.php?tab=account&success=1');
                     exit();
                 }
@@ -348,16 +372,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['password'] = 'New password must be at least 8 characters.';
                 $redirectTab = 'account';
             } else {
-                $stmt = $pdo->prepare('SELECT PASSWORD_HASH FROM USER_ACCOUNT WHERE ACCOUNT_ID = :id');
-                $stmt->execute(['id' => $accountId]);
+                $stmt = $pdo->prepare('SELECT PASSWORD_HASH FROM USER_ACCOUNT WHERE ACCOUNT_ID = ?');
+                $stmt->execute([$accountId]);
                 $hash = $stmt->fetchColumn();
                 if (!$hash || !password_verify($current, $hash)) {
                     $formErrors['password'] = 'Current password is incorrect.';
                     $redirectTab = 'account';
                 } else {
                     $newHash = password_hash($newPass, PASSWORD_BCRYPT);
-                    $update  = $pdo->prepare('UPDATE USER_ACCOUNT SET PASSWORD_HASH = :hash WHERE ACCOUNT_ID = :id');
-                    $update->execute(['hash' => $newHash, 'id' => $accountId]);
+                    $update  = $pdo->prepare('UPDATE USER_ACCOUNT SET PASSWORD_HASH = ? WHERE ACCOUNT_ID = ?');
+                    $update->execute([$newHash, $accountId]);
                     header('Location: user_management.php?tab=account&success=1');
                     exit();
                 }
@@ -384,6 +408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $activeTab = $redirectTab;
 }
 
+/* ── DATA FETCHING ─────────────────────────────────────────── */
 $statusFilter           = $supportsStatus['TIER']         ? "WHERE STATUS = 'Active'" : '';
 $inactiveTierFilter     = $supportsStatus['TIER']         ? "WHERE STATUS = 'Inactive'" : '';
 $activeCategoryFilter   = $supportsStatus['PET_CATEGORY'] ? "WHERE STATUS = 'Active'" : '';
@@ -402,7 +427,7 @@ $accommodations     = $pdo->query(
     'SELECT A.ACCOMMODATION_ID, A.UNIT_NAME, A.ACCOMMODATION_TYPE, A.OCCUPANCY_STATUS, A.TIER_ID, T.TIER_NAME FROM ACCOMMODATION A JOIN TIER T ON A.TIER_ID = T.TIER_ID ORDER BY A.ACCOMMODATION_ID'
 )->fetchAll(PDO::FETCH_ASSOC);
 
-$employeesList      = $pdo->query("
+$employeesList = $pdo->query("
     SELECT e.Employee_ID, e.Employee_Username, u.Account_ID, u.Username, u.Account_Status, g.Group_Name, u.User_Group_ID 
     FROM EMPLOYEE e 
     JOIN USER_ACCOUNT u ON e.Employee_ID = u.Employee_ID 
@@ -417,9 +442,9 @@ while ($row = $countsStmt->fetch(PDO::FETCH_ASSOC)) {
 }
 
 $currentUserStmt = $pdo->prepare(
-    'SELECT UA.ACCOUNT_ID, UA.USERNAME, UA.ACCOUNT_STATUS, E.EMPLOYEE_USERNAME, UG.GROUP_NAME FROM USER_ACCOUNT UA JOIN EMPLOYEE E ON UA.EMPLOYEE_ID = E.EMPLOYEE_ID JOIN USER_GROUP UG ON UA.USER_GROUP_ID = UG.USER_GROUP_ID WHERE UA.ACCOUNT_ID = :id'
+    'SELECT UA.ACCOUNT_ID, UA.USERNAME, UA.ACCOUNT_STATUS, E.EMPLOYEE_USERNAME, UG.GROUP_NAME FROM USER_ACCOUNT UA JOIN EMPLOYEE E ON UA.EMPLOYEE_ID = E.EMPLOYEE_ID JOIN USER_GROUP UG ON UA.USER_GROUP_ID = UG.USER_GROUP_ID WHERE UA.ACCOUNT_ID = ?'
 );
-$currentUserStmt->execute(['id' => $_SESSION['account_id']]);
+$currentUserStmt->execute([$_SESSION['account_id']]);
 $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', 'ACCOUNT_STATUS' => '', 'EMPLOYEE_USERNAME' => '', 'GROUP_NAME' => ''];
 
 $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
@@ -493,111 +518,64 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.05s both;
         }
         .sidebar-logo {
-            width: 52px;
-            height: 52px;
-            border-radius: 14px;
-            overflow: hidden;
-            flex-shrink: 0;
+            width: 52px; height: 52px;
+            border-radius: 14px; overflow: hidden; flex-shrink: 0;
         }
         .sidebar-logo img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+            width: 100%; height: 100%; object-fit: cover;
             filter: drop-shadow(0 0 12px rgba(250,129,18,0.5));
         }
         .sidebar-logo-placeholder {
-            width: 52px;
-            height: 52px;
-            border-radius: 14px;
+            width: 52px; height: 52px; border-radius: 14px;
             background: linear-gradient(135deg, var(--orange), #f5b44a);
-            display: grid;
-            place-items: center;
+            display: grid; place-items: center;
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.4rem;
-            color: var(--white);
-            letter-spacing: 0.1em;
-            flex-shrink: 0;
+            font-size: 1.4rem; color: var(--white);
+            letter-spacing: 0.1em; flex-shrink: 0;
         }
         .sidebar-wordmark-top {
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.5rem;
-            color: var(--orange);
-            text-shadow: 0 0 20px rgba(250,129,18,0.4);
-            line-height: 1;
+            font-size: 1.5rem; color: var(--orange);
+            text-shadow: 0 0 20px rgba(250,129,18,0.4); line-height: 1;
         }
         .sidebar-wordmark-sub {
-            font-size: 0.68rem;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: var(--gold);
-            opacity: 0.8;
-            margin-top: 3px;
+            font-size: 0.68rem; letter-spacing: 0.18em;
+            text-transform: uppercase; color: var(--gold);
+            opacity: 0.8; margin-top: 3px;
         }
 
         .sidebar-user {
-            display: flex;
-            align-items: center;
-            gap: 12px;
+            display: flex; align-items: center; gap: 12px;
             background: rgba(250,129,18,0.1);
             border: 1px solid rgba(250,129,18,0.18);
-            border-radius: 12px;
-            padding: 12px 14px;
-            margin-bottom: 28px;
+            border-radius: 12px; padding: 12px 14px; margin-bottom: 28px;
             animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both;
         }
         .sidebar-avatar {
-            width: 34px;
-            height: 34px;
-            border-radius: 50%;
+            width: 34px; height: 34px; border-radius: 50%;
             background: var(--orange);
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1rem;
-            color: var(--white);
-            display: grid;
-            place-items: center;
-            flex-shrink: 0;
+            font-size: 1rem; color: var(--white);
+            display: grid; place-items: center; flex-shrink: 0;
         }
-        .sidebar-user-name {
-            font-size: 0.88rem;
-            font-weight: 600;
-            color: var(--white);
-            line-height: 1.2;
-        }
-        .sidebar-user-role {
-            font-size: 0.72rem;
-            color: var(--orange);
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            margin-top: 2px;
-        }
+        .sidebar-user-name { font-size: 0.88rem; font-weight: 600; color: var(--white); line-height: 1.2; }
+        .sidebar-user-role { font-size: 0.72rem; color: var(--orange); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px; }
 
         .nav-section-label {
-            font-size: 0.68rem;
-            font-weight: 600;
-            letter-spacing: 0.2em;
-            text-transform: uppercase;
-            color: rgba(245,231,198,0.4);
-            padding: 0 4px;
-            margin-bottom: 8px;
+            font-size: 0.68rem; font-weight: 600; letter-spacing: 0.2em;
+            text-transform: uppercase; color: rgba(245,231,198,0.4);
+            padding: 0 4px; margin-bottom: 8px;
             animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.15s both;
         }
         .nav-list {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            flex: 1;
+            display: flex; flex-direction: column; gap: 4px; flex: 1;
             animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.2s both;
         }
         .nav-link {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 11px 14px;
-            border-radius: 12px;
-            color: rgba(245,231,198,0.7);
-            font-size: 0.92rem;
-            transition: background 0.18s, color 0.18s;
-            text-decoration: none;
+            display: flex; align-items: center; gap: 10px;
+            padding: 11px 14px; border-radius: 12px;
+            color: rgba(245,231,198,0.7); font-size: 0.92rem;
+            transition: background 0.18s, color 0.18s; text-decoration: none;
         }
         .nav-link svg { width: 17px; height: 17px; opacity: 0.8; flex-shrink: 0; }
         .nav-link:hover { background: rgba(250,129,18,0.1); color: var(--white); }
@@ -607,237 +585,124 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         .sidebar-spacer { flex: 1; }
 
         .logout-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 12px 16px;
-            border-radius: 12px;
-            background: transparent;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 12px 16px; border-radius: 12px; background: transparent;
             border: 1.5px solid rgba(245,231,198,0.15);
-            color: rgba(245,231,198,0.7);
-            font-size: 0.9rem;
+            color: rgba(245,231,198,0.7); font-size: 0.9rem;
             transition: background 0.18s, color 0.18s, border-color 0.18s;
             margin-top: 16px;
         }
         .logout-btn svg { width: 16px; height: 16px; }
         .logout-btn:hover { background: rgba(250,129,18,0.12); border-color: var(--orange); color: var(--white); }
 
-        /* ── MAIN CONTENT ────────────────────────────────── */
+        /* ── MAIN CONTENT ─────────────────────────────── */
         .main-content {
-            flex-grow: 1;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
+            flex-grow: 1; overflow-y: auto;
+            display: flex; flex-direction: column;
             animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both;
         }
 
-        /* ── TOP BAR ─────────────────────────────────────── */
+        /* ── TOP BAR ─────────────────────────────────── */
         .top-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            display: flex; align-items: center; justify-content: space-between;
             padding: 24px 44px 0 44px;
         }
-
         .page-eyebrow {
-            font-size: 0.75rem;
-            font-weight: 600;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: var(--orange);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+            font-size: 0.75rem; font-weight: 600; letter-spacing: 0.18em;
+            text-transform: uppercase; color: var(--orange);
+            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
         }
         .page-eyebrow::before {
-            content: '';
-            display: block;
-            width: 20px;
-            height: 2px;
-            background: var(--orange);
-            border-radius: 99px;
+            content: ''; display: block; width: 20px; height: 2px;
+            background: var(--orange); border-radius: 99px;
         }
         .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
         .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); }
-
         .top-bar-right { display: flex; align-items: center; gap: 12px; }
 
         .profile-circle {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: var(--orange);
-            display: grid;
-            place-items: center;
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.2rem;
-            color: var(--white);
-            cursor: pointer;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: var(--orange); display: grid; place-items: center;
+            font-family: 'Bebas Neue', sans-serif; font-size: 1.2rem;
+            color: var(--white); cursor: pointer;
             border: 3px solid var(--white);
             box-shadow: 0 4px 16px rgba(250,129,18,0.35);
             transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-            flex-shrink: 0;
+            position: relative; flex-shrink: 0;
         }
-        .profile-circle:hover {
-            transform: scale(1.08);
-            box-shadow: 0 6px 24px rgba(250,129,18,0.5);
-        }
+        .profile-circle:hover { transform: scale(1.08); box-shadow: 0 6px 24px rgba(250,129,18,0.5); }
         .profile-circle-tooltip {
-            position: absolute;
-            bottom: -32px;
-            right: 0;
-            background: var(--black);
-            color: var(--white);
-            font-family: 'DM Sans', sans-serif;
-            font-size: 0.72rem;
-            padding: 4px 10px;
-            border-radius: 6px;
-            white-space: nowrap;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.18s;
+            position: absolute; bottom: -32px; right: 0;
+            background: var(--black); color: var(--white);
+            font-family: 'DM Sans', sans-serif; font-size: 0.72rem;
+            padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+            pointer-events: none; opacity: 0; transition: opacity 0.18s;
         }
         .profile-circle:hover .profile-circle-tooltip { opacity: 1; }
 
-        /* ── FOLDER TAB BAR ──────────────────────────────── */
-        .folder-tab-area {
-            padding: 28px 44px 0 44px;
-        }
-
-        .folder-tabs {
-            display: flex;
-            align-items: flex-end;
-            gap: 0;
-            position: relative;
-        }
-
+        /* ── FOLDER TABS ─────────────────────────────── */
+        .folder-tab-area { padding: 28px 44px 0 44px; }
+        .folder-tabs { display: flex; align-items: flex-end; gap: 0; position: relative; }
         .folder-tab {
-            position: relative;
-            padding: 11px 26px 18px 26px;
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 0.95rem;
-            letter-spacing: 0.1em;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            color: rgba(34,34,34,0.45);
-            border-radius: 14px 14px 0 0;
-            margin-right: -6px;
-            transition: color 0.18s;
-            z-index: 1;
-            outline: none;
+            position: relative; padding: 11px 26px 18px 26px;
+            font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem;
+            letter-spacing: 0.1em; cursor: pointer; border: none;
+            background: transparent; color: rgba(34,34,34,0.45);
+            border-radius: 14px 14px 0 0; margin-right: -6px;
+            transition: color 0.18s; z-index: 1; outline: none;
         }
-
-        .folder-tab span {
-            position: relative;
-            z-index: 2;
-            pointer-events: none;
-            display: block;
-        }
-
+        .folder-tab span { position: relative; z-index: 2; pointer-events: none; display: block; }
         .folder-tab::before {
-            content: '';
-            position: absolute;
-            inset: 0;
+            content: ''; position: absolute; inset: 0;
             border-radius: 14px 14px 0 0;
             background: rgba(34,34,34,0.06);
             border: 1.5px solid rgba(34,34,34,0.1);
-            border-bottom: none;
-            transition: background 0.18s;
-            z-index: 0;
+            border-bottom: none; transition: background 0.18s; z-index: 0;
         }
-
-        .folder-tab:hover {
-            color: var(--black);
-            z-index: 2;
-        }
-        .folder-tab:hover::before {
-            background: rgba(250,129,18,0.1);
-            border-color: rgba(250,129,18,0.25);
-        }
-
-        .folder-tab.active {
-            color: var(--black);
-            z-index: 10;
-        }
-        .folder-tab.active::before {
-            background: var(--white);
-            border-color: rgba(34,34,34,0.1);
-            box-shadow: 0 -4px 16px rgba(15,23,42,0.06);
-        }
-
+        .folder-tab:hover { color: var(--black); z-index: 2; }
+        .folder-tab:hover::before { background: rgba(250,129,18,0.1); border-color: rgba(250,129,18,0.25); }
+        .folder-tab.active { color: var(--black); z-index: 10; }
+        .folder-tab.active::before { background: var(--white); border-color: rgba(34,34,34,0.1); box-shadow: 0 -4px 16px rgba(15,23,42,0.06); }
         .folder-tab.active::after {
-            content: '';
-            position: absolute;
-            bottom: 7px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 5px;
-            height: 5px;
-            border-radius: 50%;
-            background: var(--orange);
-            z-index: 2;
+            content: ''; position: absolute; bottom: 7px; left: 50%;
+            transform: translateX(-50%); width: 5px; height: 5px;
+            border-radius: 50%; background: var(--orange); z-index: 2;
         }
-
         .folder-content-wrap {
             background: var(--white);
             border: 1.5px solid rgba(34,34,34,0.1);
             border-radius: 0 16px 16px 16px;
-            padding: 28px;
-            box-shadow: var(--shadow-card);
-            position: relative;
-            z-index: 5;
+            padding: 28px; box-shadow: var(--shadow-card);
+            position: relative; z-index: 5;
         }
 
-        /* ── PANEL / CARD ────────────────────────────────── */
+        /* ── PANEL ───────────────────────────────────── */
         .panel {
-            background: var(--white);
-            border: var(--border-soft);
-            border-radius: 20px;
-            padding: 28px;
-            box-shadow: var(--shadow-card);
-            margin-bottom: 20px;
+            background: var(--white); border: var(--border-soft);
+            border-radius: 20px; padding: 28px;
+            box-shadow: var(--shadow-card); margin-bottom: 20px;
         }
         .panel-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 20px;
-            padding-bottom: 16px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin-bottom: 20px; padding-bottom: 16px;
             border-bottom: 1px solid rgba(34,34,34,0.06);
         }
         .panel-header-left { display: flex; align-items: center; gap: 12px; }
         .panel-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
+            width: 36px; height: 36px; border-radius: 10px;
             background: rgba(250,129,18,0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .panel-icon svg { width: 18px; height: 18px; color: var(--orange); fill: var(--orange); }
         .panel-heading  { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; color: var(--black); letter-spacing: 0.05em; }
         .panel-subtext  { font-size: 0.8rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
 
-        /* ── BUTTONS ─────────────────────────────────────── */
+        /* ── BUTTONS ─────────────────────────────────── */
         .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 22px;
-            border: none;
-            border-radius: 12px;
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 0.95rem;
-            letter-spacing: 0.12em;
-            cursor: pointer;
-            text-decoration: none;
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 12px 22px; border: none; border-radius: 12px;
+            font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem;
+            letter-spacing: 0.12em; cursor: pointer; text-decoration: none;
             transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
         }
         .btn:hover { transform: translateY(-1px); }
@@ -850,176 +715,117 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         .btn-ghost:hover { background: rgba(34,34,34,0.04); border-color: var(--orange); }
         .btn-sm { padding: 8px 14px; font-size: 0.78rem; }
 
-        /* ── FORMS ───────────────────────────────────────── */
+        /* ── FORMS ───────────────────────────────────── */
         .field-label {
-            display: block;
-            font-size: 0.75rem;
-            font-weight: 600;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #4a3f33;
-            margin-bottom: 8px;
+            display: block; font-size: 0.75rem; font-weight: 600;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            color: #4a3f33; margin-bottom: 8px;
         }
         input, select, textarea {
-            width: 100%;
-            padding: 13px 16px;
-            border: 1.5px solid #e2d9ce;
-            border-radius: 12px;
-            background: var(--beige);
-            color: var(--black);
-            font-family: 'DM Sans', sans-serif;
-            font-size: 0.95rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            appearance: none;
+            width: 100%; padding: 13px 16px;
+            border: 1.5px solid #e2d9ce; border-radius: 12px;
+            background: var(--beige); color: var(--black);
+            font-family: 'DM Sans', sans-serif; font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s; appearance: none;
         }
         input:focus, select:focus, textarea:focus {
             border-color: var(--orange);
             box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
-            outline: none;
-            background: var(--white);
+            outline: none; background: var(--white);
         }
-        input:disabled, select:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background: rgba(34,34,34,0.04);
-        }
+        input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(34,34,34,0.04); }
         input[readonly] { opacity: 0.65; cursor: default; }
         textarea { resize: vertical; min-height: 90px; }
         .form-grid { display: grid; gap: 18px; }
         .form-grid-2 { grid-template-columns: 1fr 1fr; }
         .field-prefix-wrap { display: flex; align-items: center; gap: 0; }
         .field-prefix-wrap .prefix-symbol {
-            background: #e2d9ce;
-            border: 1.5px solid #e2d9ce;
-            border-right: none;
-            border-radius: 12px 0 0 12px;
-            padding: 13px 14px;
-            font-size: 0.95rem;
-            color: #6b5a48;
-            font-weight: 600;
-            line-height: 1;
+            background: #e2d9ce; border: 1.5px solid #e2d9ce;
+            border-right: none; border-radius: 12px 0 0 12px;
+            padding: 13px 14px; font-size: 0.95rem;
+            color: #6b5a48; font-weight: 600; line-height: 1;
         }
-        .field-prefix-wrap input {
-            border-radius: 0 12px 12px 0;
-            border-left: none;
-        }
+        .field-prefix-wrap input { border-radius: 0 12px 12px 0; border-left: none; }
         .field-prefix-wrap input:focus { border-color: var(--orange); }
 
-        /* ── ALERTS ──────────────────────────────────────── */
+        /* ── ALERTS ──────────────────────────────────── */
         .alert {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 14px 18px;
-            border-radius: 12px;
-            font-size: 0.9rem;
-            margin-bottom: 24px;
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 14px 18px; border-radius: 12px;
+            font-size: 0.9rem; margin-bottom: 24px;
         }
         .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
         .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
         .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
         .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 
-        /* ── DATA TABLE ──────────────────────────────────── */
+        /* ── DATA TABLE ──────────────────────────────── */
         .table-wrap { overflow-x: auto; }
         .data-table { width: 100%; border-collapse: collapse; }
         .data-table thead tr { background: rgba(250,129,18,0.04); }
         .data-table th {
-            padding: 12px 20px;
-            font-size: 0.72rem;
-            font-weight: 600;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: rgba(34,34,34,0.45);
-            text-align: left;
-            border-bottom: 1px solid rgba(34,34,34,0.06);
-            white-space: nowrap;
+            padding: 12px 20px; font-size: 0.72rem; font-weight: 600;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            color: rgba(34,34,34,0.45); text-align: left;
+            border-bottom: 1px solid rgba(34,34,34,0.06); white-space: nowrap;
         }
         .data-table tbody tr { border-bottom: 1px solid rgba(34,34,34,0.05); transition: background 0.15s; }
         .data-table tbody tr:hover { background: rgba(250,129,18,0.03); }
         .data-table td { padding: 16px 20px; font-size: 0.92rem; vertical-align: middle; }
         .td-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-        /* ── STATUS BADGES ───────────────────────────────── */
+        /* ── STATUS BADGES ───────────────────────────── */
         .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 12px;
-            border-radius: 99px;
-            font-size: 0.78rem;
-            font-weight: 600;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 99px;
+            font-size: 0.78rem; font-weight: 600;
         }
         .status-dot { width: 6px; height: 6px; border-radius: 50%; }
-        .badge-available   { background: rgba(34,197,94,0.12);  color: #166534; }
-        .badge-booked      { background: rgba(250,129,18,0.12); color: var(--orange-dk); }
+        .badge-available   { background: rgba(34,197,94,0.12);   color: #166534; }
+        .badge-booked      { background: rgba(250,129,18,0.12);  color: var(--orange-dk); }
         .badge-maintenance { background: rgba(148,163,184,0.15); color: #475569; }
-        .badge-free        { background: rgba(34,197,94,0.12);  color: #166534; }
+        .badge-free        { background: rgba(34,197,94,0.12);   color: #166534; }
         .dot-available   { background: #22c55e; }
         .dot-booked      { background: var(--orange); }
         .dot-maintenance { background: #94a3b8; }
 
-        /* ── INACTIVE SECTION ────────────────────────────── */
+        /* ── INACTIVE SECTION ────────────────────────── */
         .inactive-section { margin-top: 24px; }
         .inactive-section-title {
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.1rem;
-            color: rgba(34,34,34,0.45);
-            letter-spacing: 0.08em;
-            margin-bottom: 14px;
-            padding-top: 16px;
+            font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem;
+            color: rgba(34,34,34,0.45); letter-spacing: 0.08em;
+            margin-bottom: 14px; padding-top: 16px;
             border-top: 1px dashed rgba(34,34,34,0.1);
         }
         .hidden { display: none !important; }
         .show-inactive-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 7px 14px;
-            border-radius: 99px;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 14px; border-radius: 99px;
             background: rgba(250,129,18,0.08);
             border: 1px solid rgba(250,129,18,0.2);
-            color: var(--orange-dk);
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.18s;
+            color: var(--orange-dk); font-size: 0.8rem;
+            font-weight: 600; cursor: pointer; transition: background 0.18s;
         }
         .show-inactive-btn:hover { background: rgba(250,129,18,0.16); }
 
-        /* ── ACCOUNT TAB ─────────────────────────────────── */
+        /* ── ACCOUNT TAB ─────────────────────────────── */
         .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        
         .account-info-card {
-            /* FIXED: Use background property with multiple values to ensure layers are retained */
-            background: 
+            background:
                 repeating-linear-gradient(
                     -55deg, transparent, transparent 18px,
                     rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
                 ),
                 linear-gradient(135deg, var(--black), #1a1a2e);
-            border-radius: 16px;
-            padding: 24px;
-            color: var(--white);
+            border-radius: 16px; padding: 24px; color: var(--white);
             grid-column: span 2;
         }
-        
-        .account-info-header {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 24px;
-        }
+        .account-info-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
         .account-avatar-large {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
+            width: 56px; height: 56px; border-radius: 50%;
             background: var(--orange);
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.6rem;
-            color: var(--white);
-            display: grid;
-            place-items: center;
+            font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem;
+            color: var(--white); display: grid; place-items: center;
             box-shadow: 0 0 0 4px rgba(250,129,18,0.25);
         }
         .account-info-name  { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; line-height: 1; }
@@ -1030,73 +836,57 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         .account-status-active   { color: #86efac; }
         .account-status-inactive { color: #fca5a5; }
 
-        /* ── MODAL ───────────────────────────────────────── */
+        /* ── MODAL ───────────────────────────────────── */
         .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(34,34,34,0.55);
-            backdrop-filter: blur(3px);
-            z-index: 100;
-            align-items: center;
-            justify-content: center;
+            display: none; position: fixed; inset: 0;
+            background: rgba(34,34,34,0.55); backdrop-filter: blur(3px);
+            z-index: 100; align-items: center; justify-content: center;
         }
         .modal-overlay.open { display: flex; }
         .modal-box {
-            background: var(--white);
-            border-radius: 20px;
-            width: min(100%, 440px);
-            max-height: 90vh;
-            overflow-y: auto;
+            background: var(--white); border-radius: 20px;
+            width: min(100%, 480px); max-height: 90vh; overflow-y: auto;
             box-shadow: 0 32px 80px rgba(15,23,42,0.18);
             animation: fadeUp 0.35s cubic-bezier(0.16,1,0.3,1) both;
         }
         .modal-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 22px 28px;
-            background-color: var(--black);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 22px 28px; background-color: var(--black);
             background-image: repeating-linear-gradient(
                 -55deg, transparent, transparent 18px,
                 rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
             );
-            position: sticky;
-            top: 0;
-            z-index: 1;
+            position: sticky; top: 0; z-index: 1;
         }
-        .modal-title {
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.3rem;
-            color: var(--white);
-            letter-spacing: 0.06em;
-        }
+        .modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; color: var(--white); letter-spacing: 0.06em; }
         .modal-close {
-            background: none;
-            border: none;
-            cursor: pointer;
-            color: rgba(245,231,198,0.6);
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.18s, color 0.18s;
-            font-size: 1.4rem;
-            line-height: 1;
+            background: none; border: none; cursor: pointer;
+            color: rgba(245,231,198,0.6); width: 32px; height: 32px;
+            border-radius: 8px; display: flex; align-items: center; justify-content: center;
+            transition: background 0.18s, color 0.18s; font-size: 1.4rem; line-height: 1;
         }
         .modal-close:hover { background: rgba(250,129,18,0.2); color: var(--white); }
         .modal-body { padding: 28px; }
         .modal-body .form-grid { gap: 18px; }
 
-        /* ── RESPONSIVE ──────────────────────────────────── */
+        /* Auto-ID info box */
+        .auto-id-note {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(250,129,18,0.08);
+            border: 1px solid rgba(250,129,18,0.2);
+            border-radius: 10px; padding: 10px 14px;
+            font-size: 0.82rem; color: var(--orange-dk);
+        }
+        .auto-id-note svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+        /* ── RESPONSIVE ──────────────────────────────── */
         @media (max-width: 1100px) {
             .top-bar, .folder-tab-area { padding-left: 24px; padding-right: 24px; }
         }
         @media (max-width: 900px) {
             body { flex-direction: column; }
             .sidebar { width: 100%; height: auto; position: static; }
+            .main-content { padding: 24px 20px; }
             .top-bar, .folder-tab-area { padding: 20px 16px 0 16px; }
             .folder-content-wrap { padding: 20px 16px; border-radius: 0 0 16px 16px; }
             .form-grid-2 { grid-template-columns: 1fr; }
@@ -1194,6 +984,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 
         <div class="folder-content-wrap">
 
+            <!-- ── ACCOMMODATION TAB ──────────────────────── -->
             <div id="panel-accommodation" class="tab-panel">
                 <?php if ($activeTab === 'accommodation' && $success): ?>
                     <div class="alert alert-success">
@@ -1282,6 +1073,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <!-- ── TIER TAB ───────────────────────────────── -->
             <div id="panel-tier" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'tier' && $success): ?>
                     <div class="alert alert-success">
@@ -1402,6 +1194,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <!-- ── PET CATEGORY TAB ───────────────────────── -->
             <div id="panel-pet_category" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'pet_category' && $success): ?>
                     <div class="alert alert-success">
@@ -1507,6 +1300,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <!-- ── SERVICE TAB ────────────────────────────── -->
             <div id="panel-service" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'service' && $success): ?>
                     <div class="alert alert-success">
@@ -1627,6 +1421,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <!-- ── EMPLOYEE TAB ───────────────────────────── -->
             <div id="panel-employee" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'employee' && $success): ?>
                     <div class="alert alert-success">
@@ -1662,8 +1457,8 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                             <thead>
                                 <tr>
                                     <th>Emp ID</th>
-                                    <th>Full Name</th>
                                     <th>Username</th>
+                                    <th>Login Name</th>
                                     <th>Group</th>
                                     <th>Status</th>
                                     <th>Actions</th>
@@ -1673,7 +1468,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                             <?php foreach ($employeesList as $emp): ?>
                                 <?php
                                     $empBadge = $emp['ACCOUNT_STATUS'] === 'Active' ? 'badge-available' : 'badge-maintenance';
-                                    $empDot = $emp['ACCOUNT_STATUS'] === 'Active' ? 'dot-available' : 'dot-maintenance';
+                                    $empDot   = $emp['ACCOUNT_STATUS'] === 'Active' ? 'dot-available'  : 'dot-maintenance';
                                 ?>
                                 <tr>
                                     <td><?php echo escape($emp['EMPLOYEE_ID']); ?></td>
@@ -1710,6 +1505,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <!-- ── MY ACCOUNT TAB ─────────────────────────── -->
             <div id="panel-account" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'account' && $success): ?>
                     <div class="alert alert-success">
@@ -1811,36 +1607,37 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
-        </div></div></main>
+        </div></div>
+</main>
 
+<!-- ── MODAL ──────────────────────────────────────────────── -->
 <div class="modal-overlay" id="accountModal">
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
         <div class="modal-head">
             <span class="modal-title" id="accountModalTitle">Edit</span>
             <button type="button" class="modal-close" id="closeAccountModal" aria-label="Close">&#x2715;</button>
         </div>
-        <div class="modal-body" id="modalBody">
-            </div>
+        <div class="modal-body" id="modalBody"></div>
     </div>
 </div>
 
 <script>
 (function () {
-    /* ── DATA FROM PHP ──────────────────────────────── */
+    /* ── DATA FROM PHP ──────────────────────────────────────── */
     const accommodationCounts = <?php echo json_encode($accommodationCounts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
     const allTiers             = <?php echo json_encode(array_map(fn($t) => ['id' => (int)$t['TIER_ID'], 'name' => $t['TIER_NAME']], $activeTiers), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
-    const supportsStatusTier   = <?php echo $supportsStatus['TIER'] ? 'true' : 'false'; ?>;
+    const supportsStatusTier   = <?php echo $supportsStatus['TIER']         ? 'true' : 'false'; ?>;
     const supportsStatusCat    = <?php echo $supportsStatus['PET_CATEGORY'] ? 'true' : 'false'; ?>;
-    const supportsStatusSvc    = <?php echo $supportsStatus['SERVICE'] ? 'true' : 'false'; ?>;
+    const supportsStatusSvc    = <?php echo $supportsStatus['SERVICE']      ? 'true' : 'false'; ?>;
     const initialTab           = <?php echo json_encode($activeTab); ?>;
 
-    /* ── ELEMENTS ───────────────────────────────────── */
-    const modal          = document.getElementById('accountModal');
-    const modalTitle     = document.getElementById('accountModalTitle');
-    const modalBody      = document.getElementById('modalBody');
-    const closeModalBtn  = document.getElementById('closeAccountModal');
+    /* ── ELEMENTS ───────────────────────────────────────────── */
+    const modal         = document.getElementById('accountModal');
+    const modalTitle    = document.getElementById('accountModalTitle');
+    const modalBody     = document.getElementById('modalBody');
+    const closeModalBtn = document.getElementById('closeAccountModal');
 
-    /* ── HELPERS ────────────────────────────────────── */
+    /* ── HELPERS ────────────────────────────────────────────── */
     function esc(str) {
         const d = document.createElement('div');
         d.appendChild(document.createTextNode(String(str)));
@@ -1865,7 +1662,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         return `<div><label class="field-label">${label}</label>${inputHtml}</div>`;
     }
 
-    /* ── MODAL OPEN / CLOSE ─────────────────────────── */
+    /* ── MODAL OPEN / CLOSE ─────────────────────────────────── */
     function openModal(title, bodyHtml, afterRender) {
         modalTitle.textContent = title;
         modalBody.innerHTML    = bodyHtml;
@@ -1883,7 +1680,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
     modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
 
-    /* ── TAB SWITCHING ──────────────────────────────── */
+    /* ── TAB SWITCHING ──────────────────────────────────────── */
     const tabs   = document.querySelectorAll('.folder-tab');
     const panels = document.querySelectorAll('.tab-panel');
 
@@ -1892,32 +1689,27 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         tabs.forEach(b => b.classList.remove('active'));
         const target = document.getElementById('panel-' + name);
         const button = document.querySelector('[data-tab="' + name + '"]');
-        if (target)  target.style.display  = '';
-        if (button)  button.classList.add('active');
+        if (target) target.style.display = '';
+        if (button) button.classList.add('active');
         history.replaceState(null, '', '?tab=' + name);
     }
 
     tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab.dataset.tab)));
     showTab(initialTab);
 
-    /* ── PROFILE CIRCLE → My Account tab ───────────── */
+    /* ── PROFILE CIRCLE → My Account tab ───────────────────── */
     const profileCircleBtn = document.getElementById('profileCircleBtn');
     if (profileCircleBtn) {
-        profileCircleBtn.addEventListener('click', function () {
-            showTab('account');
-        });
+        profileCircleBtn.addEventListener('click', function () { showTab('account'); });
         profileCircleBtn.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                showTab('account');
-            }
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTab('account'); }
         });
     }
 
-    /* ── UNIT NAME AUTO-GENERATION (in modal) ───────── */
+    /* ── UNIT NAME AUTO-GENERATION (in modal) ───────────────── */
     function setupUnitNameGeneration() {
-        const tierSel  = document.getElementById('modal_tier_id');
-        const unitInp  = document.getElementById('modal_unit_name');
+        const tierSel = document.getElementById('modal_tier_id');
+        const unitInp = document.getElementById('modal_unit_name');
         if (!tierSel || !unitInp) return;
 
         function refresh() {
@@ -1930,7 +1722,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         refresh();
     }
 
-    /* ── ADD — ACCOMMODATION ────────────────────────── */
+    /* ── ADD — ACCOMMODATION ────────────────────────────────── */
     document.getElementById('openAddAccommodation').addEventListener('click', function () {
         openModal('New Accommodation', `
             <form method="POST" action="user_management.php?tab=accommodation" class="form-grid">
@@ -1947,7 +1739,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         `, setupUnitNameGeneration);
     });
 
-    /* ── ADD — TIER ─────────────────────────────────── */
+    /* ── ADD — TIER ─────────────────────────────────────────── */
     document.getElementById('openAddTier').addEventListener('click', function () {
         openModal('New Tier', `
             <form method="POST" action="user_management.php?tab=tier" class="form-grid">
@@ -1970,7 +1762,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         `);
     });
 
-    /* ── ADD — PET CATEGORY ─────────────────────────── */
+    /* ── ADD — PET CATEGORY ─────────────────────────────────── */
     document.getElementById('openAddCategory').addEventListener('click', function () {
         openModal('New Pet Category', `
             <form method="POST" action="user_management.php?tab=pet_category" class="form-grid">
@@ -1986,7 +1778,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         `);
     });
 
-    /* ── ADD — SERVICE ──────────────────────────────── */
+    /* ── ADD — SERVICE ──────────────────────────────────────── */
     document.getElementById('openAddService').addEventListener('click', function () {
         openModal('New Service', `
             <form method="POST" action="user_management.php?tab=service" class="form-grid">
@@ -2003,16 +1795,18 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         `);
     });
 
-    /* ── ADD — EMPLOYEE (SINGLE COLUMN) ─────────────── */
+    /* ── ADD — EMPLOYEE (auto Employee ID, no Full Name) ────── */
     const openAddEmployeeBtn = document.getElementById('openAddEmployee');
     if (openAddEmployeeBtn) {
         openAddEmployeeBtn.addEventListener('click', function () {
             openModal('New User Registration', `
                 <form method="POST" action="user_management.php?tab=employee" class="form-grid">
-                    ${fieldRow('Employee ID', '<input type="number" name="employee_id" required>')}
-                    ${fieldRow('Full Name', '<input type="text" name="employee_name" required>')}
-                    ${fieldRow('Username', '<input type="text" name="username" required>')}
-                    ${fieldRow('Password', '<input type="password" name="password" required>')}
+                    <div class="auto-id-note">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        Employee ID is automatically assigned by the system (starting from 13).
+                    </div>
+                    ${fieldRow('Username', '<input type="text" name="username" placeholder="Enter login username" required>')}
+                    ${fieldRow('Password', '<input type="password" name="password" placeholder="Minimum 8 characters" required minlength="8">')}
                     ${fieldRow('User Group', `<select name="user_group_id" required>
                         <option value="1">Administrator</option>
                         <option value="2">Staff</option>
@@ -2024,7 +1818,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                     <input type="hidden" name="action" value="add_employee">
                     <input type="hidden" name="tab" value="employee">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
-                        <button type="submit" class="btn btn-primary">Add User</button>
+                        <button type="submit" class="btn btn-primary">Create User</button>
                         <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
                     </div>
                 </form>
@@ -2032,7 +1826,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     }
 
-    /* ── EDIT — ACCOMMODATION ───────────────────────── */
+    /* ── EDIT — ACCOMMODATION ───────────────────────────────── */
     document.querySelectorAll('.edit-accommodation').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const id     = btn.dataset.id;
@@ -2062,7 +1856,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     });
 
-    /* ── EDIT — TIER ────────────────────────────────── */
+    /* ── EDIT — TIER ────────────────────────────────────────── */
     document.querySelectorAll('.edit-tier').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const statusField = supportsStatusTier ? fieldRow('Status', `<select name="status">
@@ -2092,7 +1886,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     });
 
-    /* ── EDIT — PET CATEGORY ────────────────────────── */
+    /* ── EDIT — PET CATEGORY ────────────────────────────────── */
     document.querySelectorAll('.edit-category').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const statusField = supportsStatusCat ? fieldRow('Status', `<select name="status">
@@ -2115,7 +1909,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     });
 
-    /* ── EDIT — SERVICE ─────────────────────────────── */
+    /* ── EDIT — SERVICE ─────────────────────────────────────── */
     document.querySelectorAll('.edit-service').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const statusField = supportsStatusSvc ? fieldRow('Status', `<select name="status">
@@ -2139,14 +1933,14 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     });
 
-    /* ── EDIT — EMPLOYEE (SINGLE COLUMN) ────────────── */
+    /* ── EDIT — EMPLOYEE ────────────────────────────────────── */
     document.querySelectorAll('.edit-employee').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            openModal('Edit User', `
+            openModal('Edit User Account', `
                 <form method="POST" action="user_management.php?tab=employee" class="form-grid">
                     ${fieldRow('Employee ID', `<input type="text" value="${esc(btn.dataset.empId)}" readonly>`)}
-                    ${fieldRow('Full Name', `<input type="text" value="${esc(btn.dataset.empName)}" readonly>`)}
-                    ${fieldRow('Username', `<input type="text" value="${esc(btn.dataset.username)}" readonly>`)}
+                    ${fieldRow('Employee Username', `<input type="text" value="${esc(btn.dataset.empName)}" readonly>`)}
+                    ${fieldRow('Login Username', `<input type="text" value="${esc(btn.dataset.username)}" readonly>`)}
                     ${fieldRow('User Group', `<select name="user_group_id" required>
                         <option value="1" ${btn.dataset.groupId === '1' ? 'selected' : ''}>Administrator</option>
                         <option value="2" ${btn.dataset.groupId === '2' ? 'selected' : ''}>Staff</option>
@@ -2167,7 +1961,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     });
 
-    /* ── INACTIVE SECTION TOGGLES ───────────────────── */
+    /* ── INACTIVE SECTION TOGGLES ───────────────────────────── */
     document.querySelectorAll('.show-inactive-btn').forEach(function (button) {
         button.addEventListener('click', function () {
             const targetId =
