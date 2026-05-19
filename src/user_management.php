@@ -32,8 +32,8 @@ function columnExists(PDO $pdo, $table, $column) {
 function getNextId(PDO $pdo, $table, $column) {
     $table = strtoupper($table);
     $column = strtoupper($column);
-    $allowedTables = ['ACCOMMODATION', 'TIER', 'PET_CATEGORY', 'SERVICE'];
-    $allowedColumns = ['ACCOMMODATION_ID', 'TIER_ID', 'CATEGORY_ID', 'SERVICE_ID'];
+    $allowedTables = ['ACCOMMODATION', 'TIER', 'PET_CATEGORY', 'SERVICE', 'USER_ACCOUNT'];
+    $allowedColumns = ['ACCOMMODATION_ID', 'TIER_ID', 'CATEGORY_ID', 'SERVICE_ID', 'ACCOUNT_ID'];
     if (!in_array($table, $allowedTables, true) || !in_array($column, $allowedColumns, true)) {
         throw new InvalidArgumentException('Invalid table or column name for getNextId().');
     }
@@ -47,7 +47,7 @@ $supportsStatus = [
     'SERVICE'      => columnExists($pdo, 'SERVICE', 'STATUS'),
 ];
 
-$allowedTabs = ['accommodation', 'tier', 'pet_category', 'service', 'account'];
+$allowedTabs = ['accommodation', 'tier', 'pet_category', 'service', 'employee', 'account'];
 $activeTab   = isset($_GET['tab']) && in_array($_GET['tab'], $allowedTabs, true) ? $_GET['tab'] : 'accommodation';
 $success     = isset($_GET['success']) && $_GET['success'] === '1';
 $formErrors  = [
@@ -55,6 +55,7 @@ $formErrors  = [
     'tier'          => '',
     'pet_category'  => '',
     'service'       => '',
+    'employee'      => '',
     'account'       => '',
     'password'      => '',
 ];
@@ -258,6 +259,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
+        } elseif ($action === 'add_employee') {
+            $empId = filter_var($_POST['employee_id'] ?? '', FILTER_VALIDATE_INT);
+            $empName = trim($_POST['employee_name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $password = trim($_POST['password'] ?? '');
+            $userGroup = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
+            $status = trim($_POST['account_status'] ?? 'Active');
+
+            if (!$empId || $empName === '' || $username === '' || $password === '' || !$userGroup) {
+                $formErrors['employee'] = 'Please complete all required fields.';
+            } else {
+                $stmt = $pdo->prepare("SELECT COUNT(*) FROM EMPLOYEE WHERE Employee_ID = ?");
+                $stmt->execute([$empId]);
+                if ($stmt->fetchColumn() > 0) {
+                    $formErrors['employee'] = 'Employee ID already exists.';
+                } else {
+                    $stmt2 = $pdo->prepare("SELECT COUNT(*) FROM USER_ACCOUNT WHERE Username = ?");
+                    $stmt2->execute([$username]);
+                    if ($stmt2->fetchColumn() > 0) {
+                        $formErrors['employee'] = 'Username already exists.';
+                    } else {
+                        try {
+                            $pdo->beginTransaction();
+                            $hash = password_hash($password, PASSWORD_BCRYPT);
+                            
+                            $insEmp = $pdo->prepare("INSERT INTO EMPLOYEE (Employee_ID, Employee_Username, Password_Hash) VALUES (?, ?, ?)");
+                            $insEmp->execute([$empId, $empName, $hash]);
+
+                            $accId = getNextId($pdo, 'USER_ACCOUNT', 'ACCOUNT_ID');
+                            $insAcc = $pdo->prepare("INSERT INTO USER_ACCOUNT (Account_ID, Username, Account_Status, Password_Hash, Employee_ID, User_Group_ID) VALUES (?, ?, ?, ?, ?, ?)");
+                            $insAcc->execute([$accId, $username, $status, $hash, $empId, $userGroup]);
+
+                            $pdo->commit();
+                            header('Location: user_management.php?tab=employee&success=1');
+                            exit();
+                        } catch (Exception $e) {
+                            $pdo->rollBack();
+                            throw $e;
+                        }
+                    }
+                }
+            }
+        } elseif ($action === 'edit_employee') {
+            $accId = filter_var($_POST['account_id'] ?? '', FILTER_VALIDATE_INT);
+            $userGroup = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
+            $status = trim($_POST['account_status'] ?? '');
+
+            if (!$accId || !$userGroup || !in_array($status, ['Active', 'Inactive'])) {
+                $formErrors['employee'] = 'Invalid form data provided for account update.';
+            } else {
+                $update = $pdo->prepare("UPDATE USER_ACCOUNT SET User_Group_ID = ?, Account_Status = ? WHERE Account_ID = ?");
+                $update->execute([$userGroup, $status, $accId]);
+                header('Location: user_management.php?tab=employee&success=1');
+                exit();
+            }
         } elseif ($action === 'update_username') {
             $username  = trim($_POST['username'] ?? '');
             $accountId = $_SESSION['account_id'];
@@ -317,6 +373,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $formErrors['pet_category'] = $message;
         } elseif (in_array($action, ['add_service', 'edit_service', 'deactivate_service'], true)) {
             $formErrors['service'] = $message;
+        } elseif (in_array($action, ['add_employee', 'edit_employee'], true)) {
+            $formErrors['employee'] = $message;
         } elseif ($action === 'update_username') {
             $formErrors['account'] = $message;
         } elseif ($action === 'change_password') {
@@ -343,6 +401,14 @@ $inactiveServices   = $supportsStatus['SERVICE'] ? $pdo->query("SELECT SERVICE_I
 $accommodations     = $pdo->query(
     'SELECT A.ACCOMMODATION_ID, A.UNIT_NAME, A.ACCOMMODATION_TYPE, A.OCCUPANCY_STATUS, A.TIER_ID, T.TIER_NAME FROM ACCOMMODATION A JOIN TIER T ON A.TIER_ID = T.TIER_ID ORDER BY A.ACCOMMODATION_ID'
 )->fetchAll(PDO::FETCH_ASSOC);
+
+$employeesList      = $pdo->query("
+    SELECT e.Employee_ID, e.Employee_Username, u.Account_ID, u.Username, u.Account_Status, g.Group_Name, u.User_Group_ID 
+    FROM EMPLOYEE e 
+    JOIN USER_ACCOUNT u ON e.Employee_ID = u.Employee_ID 
+    JOIN USER_GROUP g ON u.User_Group_ID = g.User_Group_ID 
+    ORDER BY e.Employee_ID
+")->fetchAll(PDO::FETCH_ASSOC);
 
 $countsStmt        = $pdo->query('SELECT TIER_ID, COUNT(*) AS CNT FROM ACCOMMODATION GROUP BY TIER_ID');
 $accommodationCounts = [];
@@ -1122,6 +1188,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
             <button type="button" class="folder-tab" data-tab="tier" role="tab"><span>Tier</span></button>
             <button type="button" class="folder-tab" data-tab="pet_category" role="tab"><span>Pet Category</span></button>
             <button type="button" class="folder-tab" data-tab="service" role="tab"><span>Service</span></button>
+            <button type="button" class="folder-tab" data-tab="employee" role="tab"><span>Employees</span></button>
             <button type="button" class="folder-tab" data-tab="account" role="tab"><span>My Account</span></button>
         </div>
 
@@ -1560,6 +1627,89 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 </div>
             </div>
 
+            <div id="panel-employee" class="tab-panel" style="display:none;">
+                <?php if ($activeTab === 'employee' && $success): ?>
+                    <div class="alert alert-success">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Employee updated successfully.
+                    </div>
+                <?php endif; ?>
+                <?php if ($formErrors['employee']): ?>
+                    <div class="alert alert-error">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <?php echo escape($formErrors['employee']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-header-left">
+                            <div class="panel-icon">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                            </div>
+                            <div>
+                                <div class="panel-heading">Employees</div>
+                                <div class="panel-subtext"><?php echo count($employeesList); ?> user account(s) registered</div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="openAddEmployee">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                            Create New User
+                        </button>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Emp ID</th>
+                                    <th>Full Name</th>
+                                    <th>Username</th>
+                                    <th>Group</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($employeesList as $emp): ?>
+                                <?php
+                                    $empBadge = $emp['ACCOUNT_STATUS'] === 'Active' ? 'badge-available' : 'badge-maintenance';
+                                    $empDot = $emp['ACCOUNT_STATUS'] === 'Active' ? 'dot-available' : 'dot-maintenance';
+                                ?>
+                                <tr>
+                                    <td><?php echo escape($emp['EMPLOYEE_ID']); ?></td>
+                                    <td><strong><?php echo escape($emp['EMPLOYEE_USERNAME']); ?></strong></td>
+                                    <td><?php echo escape($emp['USERNAME']); ?></td>
+                                    <td><?php echo escape($emp['GROUP_NAME']); ?></td>
+                                    <td>
+                                        <span class="status-badge <?php echo $empBadge; ?>">
+                                            <span class="status-dot <?php echo $empDot; ?>"></span>
+                                            <?php echo escape($emp['ACCOUNT_STATUS']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="td-actions">
+                                            <button type="button" class="btn btn-ghost btn-sm edit-employee"
+                                                data-acc-id="<?php echo escape($emp['ACCOUNT_ID']); ?>"
+                                                data-emp-id="<?php echo escape($emp['EMPLOYEE_ID']); ?>"
+                                                data-emp-name="<?php echo escape($emp['EMPLOYEE_USERNAME']); ?>"
+                                                data-username="<?php echo escape($emp['USERNAME']); ?>"
+                                                data-group-id="<?php echo escape($emp['USER_GROUP_ID']); ?>"
+                                                data-status="<?php echo escape($emp['ACCOUNT_STATUS']); ?>">
+                                                Edit
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($employeesList)): ?>
+                                <tr><td colspan="6" style="text-align:center;padding:32px;color:rgba(34,34,34,0.4);">No employee accounts found.</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div id="panel-account" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'account' && $success): ?>
                     <div class="alert alert-success">
@@ -1853,6 +2003,35 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         `);
     });
 
+    /* ── ADD — EMPLOYEE (SINGLE COLUMN) ─────────────── */
+    const openAddEmployeeBtn = document.getElementById('openAddEmployee');
+    if (openAddEmployeeBtn) {
+        openAddEmployeeBtn.addEventListener('click', function () {
+            openModal('New User Registration', `
+                <form method="POST" action="user_management.php?tab=employee" class="form-grid">
+                    ${fieldRow('Employee ID', '<input type="number" name="employee_id" required>')}
+                    ${fieldRow('Full Name', '<input type="text" name="employee_name" required>')}
+                    ${fieldRow('Username', '<input type="text" name="username" required>')}
+                    ${fieldRow('Password', '<input type="password" name="password" required>')}
+                    ${fieldRow('User Group', `<select name="user_group_id" required>
+                        <option value="1">Administrator</option>
+                        <option value="2">Staff</option>
+                    </select>`)}
+                    ${fieldRow('Account Status', `<select name="account_status" required>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>`)}
+                    <input type="hidden" name="action" value="add_employee">
+                    <input type="hidden" name="tab" value="employee">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
+                        <button type="submit" class="btn btn-primary">Add User</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
+        });
+    }
+
     /* ── EDIT — ACCOMMODATION ───────────────────────── */
     document.querySelectorAll('.edit-accommodation').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -1953,6 +2132,34 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                     <input type="hidden" name="service_id" value="${esc(btn.dataset.id)}">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary">Save Service</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
+                    </div>
+                </form>
+            `);
+        });
+    });
+
+    /* ── EDIT — EMPLOYEE (SINGLE COLUMN) ────────────── */
+    document.querySelectorAll('.edit-employee').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            openModal('Edit User', `
+                <form method="POST" action="user_management.php?tab=employee" class="form-grid">
+                    ${fieldRow('Employee ID', `<input type="text" value="${esc(btn.dataset.empId)}" readonly>`)}
+                    ${fieldRow('Full Name', `<input type="text" value="${esc(btn.dataset.empName)}" readonly>`)}
+                    ${fieldRow('Username', `<input type="text" value="${esc(btn.dataset.username)}" readonly>`)}
+                    ${fieldRow('User Group', `<select name="user_group_id" required>
+                        <option value="1" ${btn.dataset.groupId === '1' ? 'selected' : ''}>Administrator</option>
+                        <option value="2" ${btn.dataset.groupId === '2' ? 'selected' : ''}>Staff</option>
+                    </select>`)}
+                    ${fieldRow('Account Status', `<select name="account_status" required>
+                        <option value="Active" ${btn.dataset.status === 'Active' ? 'selected' : ''}>Active</option>
+                        <option value="Inactive" ${btn.dataset.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+                    </select>`)}
+                    <input type="hidden" name="action" value="edit_employee">
+                    <input type="hidden" name="account_id" value="${esc(btn.dataset.accId)}">
+                    <input type="hidden" name="tab" value="employee">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
                         <button type="button" class="btn btn-ghost" onclick="document.getElementById('accountModal').classList.remove('open');document.body.style.overflow=''">Cancel</button>
                     </div>
                 </form>
