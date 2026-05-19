@@ -355,6 +355,8 @@ $currentUserStmt = $pdo->prepare(
 );
 $currentUserStmt->execute(['id' => $_SESSION['account_id']]);
 $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', 'ACCOUNT_STATUS' => '', 'EMPLOYEE_USERNAME' => '', 'GROUP_NAME' => ''];
+
+$role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -366,8 +368,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
     <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
         :root {
             --orange:       #FA8112;
             --orange-dk:    #d96a08;
@@ -381,6 +381,8 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             --shadow-card:  0 24px 70px rgba(15, 23, 42, 0.08);
             --border-soft:  1px solid rgba(34, 34, 34, 0.08);
         }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         html, body { min-height: 100%; }
         body {
@@ -403,20 +405,15 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
 
         /* ── SIDEBAR ─────────────────────────────────────── */
         .sidebar {
-            width: 272px;
-            flex-shrink: 0;
+            width: 272px; flex-shrink: 0;
             background-color: var(--black);
             background-image: repeating-linear-gradient(
                 -55deg, transparent, transparent 18px,
                 rgba(250,129,18,0.04) 18px, rgba(250,129,18,0.04) 19px
             );
-            display: flex;
-            flex-direction: column;
+            display: flex; flex-direction: column;
             padding: 28px 20px;
-            position: sticky;
-            top: 0;
-            height: 100vh;
-            overflow-y: auto;
+            position: sticky; top: 0; height: 100vh; overflow-y: auto;
             animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) both;
         }
 
@@ -534,6 +531,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             color: rgba(245,231,198,0.7);
             font-size: 0.92rem;
             transition: background 0.18s, color 0.18s;
+            text-decoration: none;
         }
         .nav-link svg { width: 17px; height: 17px; opacity: 0.8; flex-shrink: 0; }
         .nav-link:hover { background: rgba(250,129,18,0.1); color: var(--white); }
@@ -595,7 +593,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             background: var(--orange);
             border-radius: 99px;
         }
-        .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 4px; }
+        .page-title    { font-size: 2.6rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
         .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); }
 
         .top-bar-right { display: flex; align-items: center; gap: 12px; }
@@ -650,15 +648,9 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             position: relative;
         }
 
-        /*
-         * FIX: The tab button itself is position:relative so ::before/::after
-         * are anchored to it. The button text must render ABOVE ::before
-         * (the background layer). We achieve this by giving the inner <span>
-         * position:relative + z-index:2.
-         */
         .folder-tab {
             position: relative;
-            padding: 11px 26px 18px 26px;   /* extra bottom padding so dot doesn't overlap text */
+            padding: 11px 26px 18px 26px;
             font-family: 'Bebas Neue', sans-serif;
             font-size: 0.95rem;
             letter-spacing: 0.1em;
@@ -673,7 +665,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             outline: none;
         }
 
-        /* Tab label span — must sit above ::before background */
         .folder-tab span {
             position: relative;
             z-index: 2;
@@ -681,7 +672,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             display: block;
         }
 
-        /* Inactive tab backing — z-index:0 so it stays behind the text span */
         .folder-tab::before {
             content: '';
             position: absolute;
@@ -703,7 +693,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             border-color: rgba(250,129,18,0.25);
         }
 
-        /* Active tab */
         .folder-tab.active {
             color: var(--black);
             z-index: 10;
@@ -714,7 +703,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             box-shadow: 0 -4px 16px rgba(15,23,42,0.06);
         }
 
-        /* Orange dot indicator — z-index:2 so it shows above ::before */
         .folder-tab.active::after {
             content: '';
             position: absolute;
@@ -728,7 +716,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             z-index: 2;
         }
 
-        /* Content area sits on top of tab bar baseline */
         .folder-content-wrap {
             background: var(--white);
             border: 1.5px solid rgba(34,34,34,0.1);
@@ -741,10 +728,11 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
 
         /* ── PANEL / CARD ────────────────────────────────── */
         .panel {
-            background: var(--beige);
+            background: var(--white);
             border: var(--border-soft);
-            border-radius: 16px;
-            padding: 24px;
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: var(--shadow-card);
             margin-bottom: 20px;
         }
         .panel-header {
@@ -752,14 +740,14 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            margin-bottom: 24px;
-            padding-bottom: 18px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
             border-bottom: 1px solid rgba(34,34,34,0.06);
         }
         .panel-header-left { display: flex; align-items: center; gap: 12px; }
         .panel-icon {
-            width: 38px;
-            height: 38px;
+            width: 36px;
+            height: 36px;
             border-radius: 10px;
             background: rgba(250,129,18,0.1);
             display: flex;
@@ -768,7 +756,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             flex-shrink: 0;
         }
         .panel-icon svg { width: 18px; height: 18px; color: var(--orange); fill: var(--orange); }
-        .panel-heading  { font-family: 'Bebas Neue', sans-serif; font-size: 1.35rem; color: var(--black); letter-spacing: 0.05em; }
+        .panel-heading  { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; color: var(--black); letter-spacing: 0.05em; }
         .panel-subtext  { font-size: 0.8rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
 
         /* ── BUTTONS ─────────────────────────────────────── */
@@ -776,18 +764,18 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 11px 20px;
+            padding: 12px 22px;
             border: none;
             border-radius: 12px;
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             letter-spacing: 0.12em;
             cursor: pointer;
             text-decoration: none;
             transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
         }
         .btn:hover { transform: translateY(-1px); }
-        .btn svg   { width: 15px; height: 15px; flex-shrink: 0; }
+        .btn svg   { width: 16px; height: 16px; flex-shrink: 0; }
         .btn-primary { background: var(--black); color: var(--white); }
         .btn-primary:hover { background: var(--orange); box-shadow: 0 6px 20px rgba(250,129,18,0.3); }
         .btn-danger  { background: var(--orange); color: var(--white); }
@@ -859,7 +847,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             padding: 14px 18px;
             border-radius: 12px;
             font-size: 0.9rem;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
         .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
         .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
@@ -882,7 +870,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             white-space: nowrap;
         }
         .data-table tbody tr { border-bottom: 1px solid rgba(34,34,34,0.05); transition: background 0.15s; }
-        .data-table tbody tr:last-child { border-bottom: none; }
         .data-table tbody tr:hover { background: rgba(250,129,18,0.03); }
         .data-table td { padding: 16px 20px; font-size: 0.92rem; vertical-align: middle; }
         .td-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -936,17 +923,21 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
 
         /* ── ACCOUNT TAB ─────────────────────────────────── */
         .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        
         .account-info-card {
-            background: linear-gradient(135deg, var(--black), #1a1a2e);
-            background-image: repeating-linear-gradient(
-                -55deg, transparent, transparent 18px,
-                rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
-            );
+            /* FIXED: Use background property with multiple values to ensure layers are retained */
+            background: 
+                repeating-linear-gradient(
+                    -55deg, transparent, transparent 18px,
+                    rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
+                ),
+                linear-gradient(135deg, var(--black), #1a1a2e);
             border-radius: 16px;
             padding: 24px;
             color: var(--white);
             grid-column: span 2;
         }
+        
         .account-info-header {
             display: flex;
             align-items: center;
@@ -979,17 +970,16 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             position: fixed;
             inset: 0;
             background: rgba(34,34,34,0.55);
-            backdrop-filter: blur(4px);
+            backdrop-filter: blur(3px);
             z-index: 100;
             align-items: center;
             justify-content: center;
-            padding: 24px;
         }
         .modal-overlay.open { display: flex; }
         .modal-box {
             background: var(--white);
             border-radius: 20px;
-            width: min(100%, 540px);
+            width: min(100%, 440px);
             max-height: 90vh;
             overflow-y: auto;
             box-shadow: 0 32px 80px rgba(15,23,42,0.18);
@@ -1053,7 +1043,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════ SIDEBAR -->
 <aside class="sidebar">
     <div class="sidebar-brand">
         <div class="sidebar-logo-placeholder">RK</div>
@@ -1067,7 +1056,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
         <div class="sidebar-avatar"><?php echo strtoupper(substr($_SESSION['username'] ?? 'A', 0, 1)); ?></div>
         <div>
             <div class="sidebar-user-name"><?php echo escape($_SESSION['username'] ?? 'Admin'); ?></div>
-            <div class="sidebar-user-role"><?php echo escape($_SESSION['group_name'] ?? 'Administrator'); ?></div>
+            <div class="sidebar-user-role"><?php echo escape($role); ?></div>
         </div>
     </div>
 
@@ -1081,7 +1070,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11zm0-13H5V6h14v1z"/></svg>
             Schedule
         </a>
-        <a href="calendar-unified.php" class="nav-link">
+        <a href="calendar.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4H5V6h14v2zm0 12H5V10h14v10z"/></svg>
             Calendar
         </a>
@@ -1092,6 +1081,10 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
         <a href="pets.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.5 11c.8 0 1.5-.7 1.5-1.5v-4C6 4.7 5.3 4 4.5 4S3 4.7 3 5.5v4c0 .8.7 1.5 1.5 1.5zm6.5-1.5c0 .8-.7 1.5-1.5 1.5S8 10.3 8 9.5v-4C8 4.7 8.7 4 9.5 4S11 4.7 11 5.5v4zm4-4C15 4.7 15.7 4 16.5 4S18 4.7 18 5.5v4c0 .8-.7 1.5-1.5 1.5S15 10.3 15 9.5v-4zm-2.28 9.59L10.5 12.5C9.12 11.59 7.5 12.56 7.5 14.15v.09c0 .94.47 1.82 1.25 2.34l2.48 1.65c.14.09.27.16.42.2.39.12.83.06 1.18-.18l2.42-1.62c.78-.52 1.25-1.4 1.25-2.34v-.13c-.01-1.57-1.62-2.55-3.03-1.62z"/></svg>
             Pets
+        </a>
+        <a href="checkout.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            Checkout / Payments
         </a>
         <a href="user_management.php" class="nav-link active">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
@@ -1107,10 +1100,8 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
     </a>
 </aside>
 
-<!-- ═══════════════════════════════════════════ MAIN CONTENT -->
 <main class="main-content">
 
-    <!-- ── TOP BAR ──────────────────────────────────────── -->
     <div class="top-bar">
         <div>
             <div class="page-eyebrow">Administration</div>
@@ -1125,16 +1116,7 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
         </div>
     </div>
 
-    <!-- ── FOLDER TABS ──────────────────────────────────── -->
     <div class="folder-tab-area">
-        <!--
-            FIX: Each button's visible label is wrapped in a <span>.
-            The span gets position:relative + z-index:2 so it renders
-            ABOVE the ::before pseudo-element (the tab background layer).
-            Without the span, the text node has no stacking context and
-            gets painted behind ::before on the active (white-bg) tab,
-            making the label invisible.
-        -->
         <div class="folder-tabs" role="tablist">
             <button type="button" class="folder-tab" data-tab="accommodation" role="tab"><span>Accommodation</span></button>
             <button type="button" class="folder-tab" data-tab="tier" role="tab"><span>Tier</span></button>
@@ -1143,10 +1125,8 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             <button type="button" class="folder-tab" data-tab="account" role="tab"><span>My Account</span></button>
         </div>
 
-        <!-- ─── FOLDER CONTENT AREA ─────────────────────── -->
         <div class="folder-content-wrap">
 
-            <!-- ─────────────── TAB: ACCOMMODATION ─────────────── -->
             <div id="panel-accommodation" class="tab-panel">
                 <?php if ($activeTab === 'accommodation' && $success): ?>
                     <div class="alert alert-success">
@@ -1235,7 +1215,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                 </div>
             </div>
 
-            <!-- ─────────────── TAB: TIER ─────────────── -->
             <div id="panel-tier" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'tier' && $success): ?>
                     <div class="alert alert-success">
@@ -1356,7 +1335,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                 </div>
             </div>
 
-            <!-- ─────────────── TAB: PET CATEGORY ─────────────── -->
             <div id="panel-pet_category" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'pet_category' && $success): ?>
                     <div class="alert alert-success">
@@ -1462,7 +1440,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                 </div>
             </div>
 
-            <!-- ─────────────── TAB: SERVICE ─────────────── -->
             <div id="panel-service" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'service' && $success): ?>
                     <div class="alert alert-success">
@@ -1583,7 +1560,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                 </div>
             </div>
 
-            <!-- ─────────────── TAB: MY ACCOUNT ─────────────── -->
             <div id="panel-account" class="tab-panel" style="display:none;">
                 <?php if ($activeTab === 'account' && $success): ?>
                     <div class="alert alert-success">
@@ -1592,7 +1568,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                     </div>
                 <?php endif; ?>
 
-                <!-- Account Info Card -->
                 <div class="account-info-card">
                     <div class="account-info-header">
                         <div class="account-avatar-large"><?php echo strtoupper(substr($currentUser['USERNAME'] ?? 'A', 0, 1)); ?></div>
@@ -1620,7 +1595,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                 </div>
 
                 <div class="account-grid" style="margin-top:20px;">
-                    <!-- Edit Username -->
                     <div class="panel">
                         <div class="panel-header" style="margin-bottom:20px;">
                             <div class="panel-header-left">
@@ -1649,7 +1623,6 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                         </form>
                     </div>
 
-                    <!-- Change Password -->
                     <div class="panel">
                         <div class="panel-header" style="margin-bottom:20px;">
                             <div class="panel-header-left">
@@ -1688,12 +1661,8 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
                 </div>
             </div>
 
-        </div><!-- /.folder-content-wrap -->
-    </div><!-- /.folder-tab-area -->
+        </div></div></main>
 
-</main>
-
-<!-- ═══════════════════════════════════════════ MODAL (Add / Edit) -->
 <div class="modal-overlay" id="accountModal">
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
         <div class="modal-head">
@@ -1701,12 +1670,10 @@ $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', '
             <button type="button" class="modal-close" id="closeAccountModal" aria-label="Close">&#x2715;</button>
         </div>
         <div class="modal-body" id="modalBody">
-            <!-- Populated dynamically by JavaScript -->
-        </div>
+            </div>
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════ JAVASCRIPT -->
 <script>
 (function () {
     /* ── DATA FROM PHP ──────────────────────────────── */
