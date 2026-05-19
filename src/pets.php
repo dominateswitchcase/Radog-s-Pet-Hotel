@@ -615,12 +615,8 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </head>
 <body>
 
-<!-- ══════════════════════════════════════════════════════
-     SIDEBAR
-══════════════════════════════════════════════════════ -->
 <aside class="sidebar">
 
-    <!-- Brand -->
     <div class="sidebar-brand">
         <div class="sidebar-logo">
             <img src="../img/radog_logocutie.png" alt="Radog's Kennel">
@@ -631,7 +627,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
-    <!-- User badge -->
     <div class="sidebar-user">
         <div class="sidebar-avatar">
             <?php echo strtoupper(substr($_SESSION['username'] ?? 'U', 0, 1)); ?>
@@ -642,7 +637,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
-    <!-- Nav -->
     <p class="nav-section-label">Main Menu</p>
     <ul class="nav-list">
         <li>
@@ -679,12 +673,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 Pets
             </a>
         </li>
-        <!-- <li>
-            <a href="checkout.php" class="nav-link">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-                Checkout / Payments
-            </a>
-        </li> -->
         <?php if (isAdmin()): ?>
         <li>
             <a href="user_management.php" class="nav-link">
@@ -695,7 +683,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <?php endif; ?>
     </ul>
 
-    <!-- Logout -->
     <div class="sidebar-footer">
         <a href="../logout.php" class="logout-btn">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -704,17 +691,12 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </aside>
 
-<!-- ══════════════════════════════════════════════════════
-     MAIN CONTENT
-══════════════════════════════════════════════════════ -->
 <main class="main-content">
 
-    <!-- Page header -->
     <div class="page-eyebrow">Pet Registry</div>
     <h1 class="page-title">Pet Profiles</h1>
     <p class="page-subtitle">Centralized pet registry and historical data</p>
 
-    <!-- Alerts (from edit POST) -->
     <?php if ($edit_success): ?>
     <div class="alert alert-success">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -728,7 +710,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
     <?php endif; ?>
 
-    <!-- Filter bar -->
     <form action="pets.php" method="GET">
         <div class="filter-bar">
             <div class="search-wrap">
@@ -752,7 +733,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </form>
 
-    <!-- Table panel -->
     <div class="panel">
         <div class="panel-header">
             <div class="panel-icon">
@@ -799,24 +779,17 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <td><?php echo htmlspecialchars($row['FIRST_NAME'] . ' ' . $row['LAST_NAME']); ?></td>
                     <td class="td-center">
                         <div class="actions">
-                            <!-- Details: always visible -->
                             <a href="pet_profile.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 Details
                             </a>
 
                             <?php if (isAdmin()): ?>
-                                <!-- Admin: Delete + Export -->
                                 <a href="pet_delete.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Delete this pet profile?');">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                                     Delete
                                 </a>
-                                <a href="pet_export.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                    Export
-                                </a>
                             <?php else: ?>
-                                <!-- Staff: Edit (modal) + Log Vaccine -->
                                 <button type="button" class="btn btn-sm btn-ghost"
                                     onclick="openEditModal(
                                         <?php echo $row['PET_ID']; ?>,
@@ -846,9 +819,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 </main>
 
-<!-- ══════════════════════════════════════════════════════
-     EDIT PET MODAL
-══════════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="editPetModal">
     <div class="modal-box">
         <div class="modal-head">
@@ -860,7 +830,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         <form method="POST" action="pets.php<?php echo ($search || $category_filter !== 'all') ? '?' . http_build_query(['search' => $search, 'category' => $category_filter]) : ''; ?>">
             <div class="modal-body">
-                <!-- Hidden pet ID -->
                 <input type="hidden" name="edit_pet_id" id="modal_pet_id">
 
                 <div class="field-row">
