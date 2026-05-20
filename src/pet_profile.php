@@ -428,11 +428,17 @@ function verif_badge($status) {
             border-radius: 14px;
             background: var(--beige);
             border: 1.5px solid rgba(34,34,34,0.07);
-            transition: border-color 0.18s, box-shadow 0.18s;
+            transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+            cursor: pointer;
+            user-select: none;
         }
         .doc-card:hover {
-            border-color: rgba(250,129,18,0.3);
-            box-shadow: 0 4px 16px rgba(250,129,18,0.08);
+            border-color: rgba(250,129,18,0.35);
+            box-shadow: 0 4px 20px rgba(250,129,18,0.12);
+            background: rgba(250,129,18,0.04);
+        }
+        .doc-card:active {
+            transform: scale(0.995);
         }
         .doc-file-icon {
             width: 38px;
@@ -453,6 +459,12 @@ function verif_badge($status) {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            transition: color 0.15s;
+        }
+        .doc-card:hover .doc-type {
+            color: var(--orange);
+            text-decoration: underline;
+            text-underline-offset: 3px;
         }
         .doc-meta {
             font-size: 0.75rem;
@@ -460,6 +472,22 @@ function verif_badge($status) {
             margin-top: 2px;
         }
         .doc-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .doc-preview-hint {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            color: rgba(34,34,34,0.3);
+            transition: color 0.15s, background 0.15s;
+            flex-shrink: 0;
+        }
+        .doc-preview-hint svg { width: 14px; height: 14px; }
+        .doc-card:hover .doc-preview-hint {
+            color: var(--orange);
+            background: rgba(250,129,18,0.1);
+        }
 
         /* Status badge (reusable) */
         .status-badge {
@@ -708,6 +736,28 @@ function verif_badge($status) {
             z-index: 2;
         }
         .doc-viewer-loading.hidden { display: none; }
+
+        /* Inline notice shown when iframe may be blocked */
+        .doc-viewer-inline-notice {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            background: rgba(245,158,11,0.1);
+            border-top: 1px solid rgba(245,158,11,0.25);
+            font-size: 0.82rem;
+            color: #92400e;
+            z-index: 3;
+        }
+        .doc-viewer-inline-notice a {
+            color: var(--orange);
+            font-weight: 600;
+            text-decoration: underline;
+        }
         .spinner {
             width: 36px;
             height: 36px;
@@ -961,7 +1011,9 @@ function verif_badge($status) {
                         ? (new DateTime($doc['DATE_VERIFIED']))->format('M d, Y')
                         : null;
                 ?>
-                <div class="doc-card">
+                <div class="doc-card"
+                     data-filepath="<?php echo htmlspecialchars($doc['FILEPATH'], ENT_QUOTES, 'UTF-8'); ?>"
+                     data-doctype="<?php echo htmlspecialchars($doc['DOCUMENT_TYPE'] ?: 'Document', ENT_QUOTES, 'UTF-8'); ?>">
                     <div class="doc-file-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </div>
@@ -980,16 +1032,9 @@ function verif_badge($status) {
                             <span class="status-dot" style="background:<?php echo $vb['dot']; ?>;"></span>
                             <?php echo htmlspecialchars($doc['VERIFICATION_STATUS'] ?? 'Unverified'); ?>
                         </span>
-                        <button
-                           type="button"
-                           class="btn-icon"
-                           title="View document"
-                           onclick="openDocViewer(
-                               '<?php echo addslashes(htmlspecialchars($doc['FILEPATH'])); ?>',
-                               '<?php echo addslashes(htmlspecialchars($doc['DOCUMENT_TYPE'] ?: 'Document')); ?>'
-                           )">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        </button>
+                        <span class="doc-preview-hint" title="Click to preview">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        </span>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -1041,116 +1086,152 @@ function verif_badge($status) {
 
 </div></div></div><script>
 // ─── Document Viewer ───────────────────────────────────────────────────────
+// Uses event delegation on .doc-list so ANY click on a doc-card (name, icon,
+// row) triggers the preview — no fragile inline onclick strings needed.
 
 const IMAGE_EXTS = ['jpg','jpeg','png','gif','webp','bmp','svg'];
-const PDF_EXT    = 'pdf';
 
-function getExtension(filepath) {
-    return (filepath.split('.').pop() || '').toLowerCase();
+function getExt(filepath) {
+    return (filepath.split('.').pop() || '').toLowerCase().split('?')[0];
 }
 
+// ── Event delegation: click anywhere on a .doc-card ──────────────────────
+document.querySelectorAll('.doc-list').forEach(function(list) {
+    list.addEventListener('click', function(e) {
+        const card = e.target.closest('.doc-card[data-filepath]');
+        if (!card) return;
+        openDocViewer(card.dataset.filepath, card.dataset.doctype);
+    });
+});
+
+// ── Main viewer function ──────────────────────────────────────────────────
 function openDocViewer(filepath, docType) {
+    if (!filepath) return;
+
     const overlay  = document.getElementById('doc-viewer-overlay');
     const body     = document.getElementById('doc-modal-body');
-    const loading  = document.getElementById('doc-viewer-loading');
     const title    = document.getElementById('doc-modal-title');
     const subtitle = document.getElementById('doc-modal-subtitle');
     const openLink = document.getElementById('doc-modal-open-link');
 
-    const ext      = getExtension(filepath);
+    const ext      = getExt(filepath);
     const filename = filepath.split('/').pop();
 
-    // Update header info
+    // Update modal header
     title.textContent    = docType || 'Document';
     subtitle.textContent = filename;
     openLink.href        = filepath;
 
-    // Clear previous content (keep loading spinner)
-    body.innerHTML = `
-        <div class="doc-viewer-loading" id="doc-viewer-loading">
-            <div class="spinner"></div>
-        </div>`;
+    // Reset body to loading state
+    body.innerHTML = '<div class="doc-viewer-loading"><div class="spinner"></div></div>';
 
-    // Open overlay
+    // Show modal
     overlay.classList.add('open');
     document.body.style.overflow = 'hidden';
 
-    // Build viewer based on file type
-    if (ext === PDF_EXT) {
-        // PDF — iframe with browser's built-in PDF viewer
-        const iframe = document.createElement('iframe');
-        iframe.className = 'doc-viewer-iframe';
-        iframe.title     = docType || 'Document';
-        iframe.onload    = () => {
-            const l = document.getElementById('doc-viewer-loading');
-            if (l) l.classList.add('hidden');
-        };
-        iframe.src = filepath;
-        body.appendChild(iframe);
-
+    // ── Render based on file type ─────────────────────────────────────────
+    if (ext === 'pdf') {
+        renderPDF(body, filepath, docType);
     } else if (IMAGE_EXTS.includes(ext)) {
-        // Image — lightbox
-        const wrap = document.createElement('div');
-        wrap.className = 'doc-viewer-img-wrap';
-        const img = document.createElement('img');
-        img.alt  = docType || 'Document';
-        img.onload = () => {
-            const l = document.getElementById('doc-viewer-loading');
-            if (l) l.classList.add('hidden');
-        };
-        img.onerror = () => showFallback(body, filepath, docType);
-        img.src = filepath;
-        wrap.appendChild(img);
-        body.appendChild(wrap);
-
+        renderImage(body, filepath, docType);
     } else {
-        // Unsupported type — fallback with open-in-new-tab
-        showFallback(body, filepath, docType);
+        renderFallback(body, filepath, ext.toUpperCase() || 'FILE');
     }
 }
 
-function showFallback(body, filepath, docType) {
-    const ext = getExtension(filepath).toUpperCase() || 'FILE';
-    body.innerHTML = `
-        <div class="doc-viewer-fallback">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-            </svg>
-            <p>In-browser preview is not available for <strong>${ext}</strong> files.</p>
-            <a href="${filepath}" target="_blank" rel="noopener noreferrer">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/>
-                    <line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-                Open in new tab
-            </a>
-        </div>`;
+// ── PDF: iframe (uses browser's native PDF renderer) ─────────────────────
+function renderPDF(body, filepath, docType) {
+    const iframe = document.createElement('iframe');
+    iframe.className = 'doc-viewer-iframe';
+    iframe.setAttribute('title', docType || 'Document');
+
+    // Hide spinner when iframe reports load
+    iframe.addEventListener('load', function() {
+        const spinner = body.querySelector('.doc-viewer-loading');
+        if (spinner) spinner.classList.add('hidden');
+    });
+
+    // If the browser blocks the iframe (X-Frame-Options / CSP) the load
+    // event still fires but the frame is blank — show fallback after a
+    // timeout so the user isn't stuck staring at a spinner.
+    const guardTimer = setTimeout(function() {
+        const spinner = body.querySelector('.doc-viewer-loading');
+        if (spinner && !spinner.classList.contains('hidden')) {
+            spinner.classList.add('hidden');
+            // Show a gentle notice alongside the (possibly blank) iframe
+            const notice = document.createElement('div');
+            notice.className = 'doc-viewer-inline-notice';
+            notice.innerHTML =
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+                + 'If the file does not appear, '
+                + '<a href="' + filepath + '" target="_blank" rel="noopener noreferrer">open it in a new tab</a>.';
+            body.appendChild(notice);
+        }
+    }, 4000);
+
+    iframe.setAttribute('data-guard', guardTimer);
+    iframe.src = filepath;
+    body.appendChild(iframe);
 }
 
+// ── Image: lightbox ───────────────────────────────────────────────────────
+function renderImage(body, filepath, docType) {
+    const wrap = document.createElement('div');
+    wrap.className = 'doc-viewer-img-wrap';
+
+    const img = document.createElement('img');
+    img.alt = docType || 'Document';
+
+    img.addEventListener('load', function() {
+        const spinner = body.querySelector('.doc-viewer-loading');
+        if (spinner) spinner.classList.add('hidden');
+    });
+
+    img.addEventListener('error', function() {
+        renderFallback(body, filepath, getExt(filepath).toUpperCase() || 'IMAGE');
+    });
+
+    img.src = filepath;
+    wrap.appendChild(img);
+    body.appendChild(wrap);
+}
+
+// ── Fallback: unsupported / unloadable ───────────────────────────────────
+function renderFallback(body, filepath, extLabel) {
+    body.innerHTML =
+        '<div class="doc-viewer-fallback">'
+        + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'
+        + '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+        + '<polyline points="14 2 14 8 20 8"/></svg>'
+        + '<p>In-browser preview is not available for <strong>' + extLabel + '</strong> files.</p>'
+        + '<a href="' + filepath + '" target="_blank" rel="noopener noreferrer">'
+        + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        + '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'
+        + '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>'
+        + 'Open in new tab</a></div>';
+}
+
+// ── Close ─────────────────────────────────────────────────────────────────
 function closeDocViewer() {
     const overlay = document.getElementById('doc-viewer-overlay');
     const body    = document.getElementById('doc-modal-body');
+    // Cancel any guard timers running on iframes
+    const iframe = body.querySelector('iframe');
+    if (iframe && iframe.dataset.guard) clearTimeout(Number(iframe.dataset.guard));
     overlay.classList.remove('open');
     document.body.style.overflow = '';
-    // Stop iframe/image loading when closed
     body.innerHTML = '';
 }
 
-// Close on overlay backdrop click
 document.getElementById('doc-viewer-overlay').addEventListener('click', function(e) {
     if (e.target === this) closeDocViewer();
 });
-
-// Close on × button
 document.getElementById('doc-modal-close').addEventListener('click', closeDocViewer);
-
-// Close on Escape key
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeDocViewer();
 });
 
 
+</script>
 </body>
 </html>
