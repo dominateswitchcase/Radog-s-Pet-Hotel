@@ -1,10 +1,9 @@
 <?php
 header('Content-Type: application/json; charset=UTF-8');
 
+// Require the DB connection ($pdo will be available from here)
 require_once __DIR__ . '/../../config/db.php';
 
-// Start the session and store account/role data on successful login.
-// Dashboard pages must also guard access by checking $_SESSION['account_id'] and $_SESSION['role'].
 session_start();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -22,15 +21,7 @@ if ($username === '' || $password === '') {
     exit;
 }
 
-$tns = '//' . DB_HOST . ':' . DB_PORT . '/' . DB_SID;
-$conn = @oci_connect(DB_USERNAME, DB_PASSWORD, $tns, 'AL32UTF8');
-if (!$conn) {
-    $error = oci_error();
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Unable to connect to the database.']);
-    exit;
-}
-
+// SQL Query tailored for PDO
 $sql = "SELECT ua.ACCOUNT_ID,
                ua.USERNAME,
                ua.PASSWORD_HASH,
@@ -43,47 +34,51 @@ $sql = "SELECT ua.ACCOUNT_ID,
         WHERE LOWER(ua.USERNAME) = LOWER(:username)
           AND ua.ACCOUNT_STATUS = 'Active'";
 
-$stid = oci_parse($conn, $sql);
-oci_bind_by_name($stid, ':username', $username);
-oci_execute($stid);
-$user = oci_fetch_array($stid, OCI_ASSOC + OCI_RETURN_NULLS);
+try {
+    // Prepare and execute using the PDO connection from db.php
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':username' => $username]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if (!$user || !isset($user['PASSWORD_HASH']) || !password_verify($password, trim($user['PASSWORD_HASH']))) {
-    oci_free_statement($stid);
-    oci_close($conn);
-    echo json_encode(['success' => false, 'message' => 'Invalid username or password.']);
+    if (!$user || !isset($user['PASSWORD_HASH']) || !password_verify($password, trim($user['PASSWORD_HASH']))) {
+        echo json_encode(['success' => false, 'message' => 'Invalid username or password.']);
+        exit;
+    }
+
+    $groupName = strtoupper(trim($user['GROUP_NAME'] ?? ''));
+    $userGroupId = $user['USER_GROUP_ID'] ?? null;
+    $role = 'Unknown';
+
+    if (in_array($groupName, ['ADMIN', 'ADMINISTRATOR'], true) || $userGroupId == 1) {
+        $role = 'Admin';
+    } elseif (in_array($groupName, ['STAFF', 'EMPLOYEE', 'STAFF MEMBER', 'KENNEL STAFF'], true) || $userGroupId == 2) {
+        $role = 'Staff';
+    }
+
+    if ($role === 'Unknown') {
+        echo json_encode(['success' => false, 'message' => 'Unable to determine user role.']);
+        exit;
+    }
+
+    // Set session variables
+    $_SESSION['account_id'] = $user['ACCOUNT_ID'];
+    $_SESSION['role'] = $role;
+    $_SESSION['group_name'] = $user['GROUP_NAME'] ?? null;
+    $_SESSION['employee_name'] = $user['EMPLOYEE_NAME'] ?? $user['USERNAME'];
+    $_SESSION['user_group_id'] = $user['USER_GROUP_ID'];
+    $_SESSION['username'] = $user['USERNAME'];
+
+    // Send success response
+    echo json_encode([
+        'success' => true,
+        'role' => $role,
+        'employee_name' => $_SESSION['employee_name'],
+    ]);
+
+} catch (PDOException $e) {
+    http_response_code(500);
+    // In production, don't output $e->getMessage() to the frontend. Just log it.
+    echo json_encode(['success' => false, 'message' => 'Query execution failed.']);
     exit;
 }
-
-$groupName = strtoupper(trim($user['GROUP_NAME'] ?? ''));
-$userGroupId = $user['USER_GROUP_ID'] ?? null;
-$role = 'Unknown';
-
-if (in_array($groupName, ['ADMIN', 'ADMINISTRATOR'], true) || $userGroupId === 1) {
-    $role = 'Admin';
-} elseif (in_array($groupName, ['STAFF', 'EMPLOYEE', 'STAFF MEMBER', 'KENNEL STAFF'], true) || $userGroupId === 2) {
-    $role = 'Staff';
-}
-
-if ($role === 'Unknown') {
-    oci_free_statement($stid);
-    oci_close($conn);
-    echo json_encode(['success' => false, 'message' => 'Unable to determine user role.']);
-    exit;
-}
-
-$_SESSION['account_id'] = $user['ACCOUNT_ID'];
-$_SESSION['role'] = $role;
-$_SESSION['group_name'] = $user['GROUP_NAME'] ?? null;
-$_SESSION['employee_name'] = $user['EMPLOYEE_NAME'] ?? $user['USERNAME'];
-$_SESSION['user_group_id'] = $user['USER_GROUP_ID'];
-$_SESSION['username'] = $user['USERNAME'];
-
-oci_free_statement($stid);
-oci_close($conn);
-
-echo json_encode([
-    'success' => true,
-    'role' => $role,
-    'employee_name' => $_SESSION['employee_name'],
-]);
+?>
