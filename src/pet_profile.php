@@ -8,6 +8,36 @@ if (!isset($_SESSION['account_id'])) {
     exit();
 }
 
+// ── AJAX: update a single health-requirement checkbox ────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_health_req') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    // Whitelist of updatable columns — prevents any SQL injection via field name
+    $allowed = ['OCULAR_EXAM_PASSED', 'VETCARD_VERIFIED', 'NEXGARD_VERIFIED', 'CONSENT_FORM_SIGNED'];
+    $field      = $_POST['field']      ?? '';
+    $raw_value  = $_POST['value']      ?? '';
+    $booking_id = (int)($_POST['booking_id'] ?? 0);
+    $pid        = (int)($_POST['pet_id']     ?? 0);
+
+    if (!in_array($field, $allowed, true) || $booking_id <= 0 || $pid <= 0
+        || !in_array($raw_value, ['Yes', 'No'], true)) {
+        echo json_encode(['success' => false, 'message' => 'Invalid request']);
+        exit();
+    }
+
+    try {
+        // $field is safe — validated against whitelist above
+        $upd = $pdo->prepare(
+            "UPDATE BOOKING SET {$field} = :val WHERE BOOKING_ID = :bid AND PET_ID = :pid"
+        );
+        $upd->execute(['val' => $raw_value, 'bid' => $booking_id, 'pid' => $pid]);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Database error']);
+    }
+    exit();
+}
+
 // Get Pet ID from URL
 $pet_id = $_GET['id'] ?? null;
 
@@ -60,7 +90,7 @@ $doc_stmt->execute(['pid' => $pet_id, 'pid2' => $pet_id]);
 $documents = $doc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ── Fetch health/requirement status from latest CONFIRMED or PENDING booking ─
-$req_query = "SELECT OCULAR_EXAM_PASSED, VETCARD_VERIFIED, NEXGARD_VERIFIED, CONSENT_FORM_SIGNED
+$req_query = "SELECT BOOKING_ID, OCULAR_EXAM_PASSED, VETCARD_VERIFIED, NEXGARD_VERIFIED, CONSENT_FORM_SIGNED
               FROM BOOKING
               WHERE PET_ID = :pid
               AND BOOKING_STATUS IN ('Confirmed', 'Pending', 'Completed')
@@ -75,6 +105,7 @@ $ocular_passed   = ($health_req && strtoupper($health_req['OCULAR_EXAM_PASSED'])
 $vetcard_ok      = ($health_req && strtoupper($health_req['VETCARD_VERIFIED'])      === 'YES');
 $nexgard_ok      = ($health_req && strtoupper($health_req['NEXGARD_VERIFIED'])      === 'YES');
 $consent_signed  = ($health_req && strtoupper($health_req['CONSENT_FORM_SIGNED'])   === 'YES');
+$booking_id      = $health_req ? (int)$health_req['BOOKING_ID'] : 0;
 
 // Helper: verification badge color
 function verif_badge($status) {
@@ -400,6 +431,39 @@ function verif_badge($status) {
         .req-sublabel.pass { color: #15803d; }
         .req-sublabel.fail { color: #dc2626; }
         .req-sublabel.na   { color: rgba(34,34,34,0.4); }
+
+        /* Interactive toggle (only when data-field present = booking exists) */
+        .req-item[data-field] {
+            cursor: pointer;
+        }
+        .req-item[data-field]:hover {
+            box-shadow: 0 2px 10px rgba(34,34,34,0.07);
+        }
+        .req-item[data-field].saving {
+            opacity: 0.65;
+            pointer-events: none;
+        }
+
+        /* Save feedback dot — sits at far right of each item */
+        .req-save-slot {
+            margin-left: auto;
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .req-save-slot .save-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(250,129,18,0.25);
+            border-top-color: var(--orange);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        .req-save-slot .save-ok  { color: #15803d; font-size: 0.85rem; font-weight: 700; }
+        .req-save-slot .save-err { color: #dc2626; font-size: 0.85rem; font-weight: 700; }
 
         .req-no-data {
             grid-column: 1 / -1;
@@ -920,7 +984,11 @@ function verif_badge($status) {
                 </div>
                 <?php else: ?>
 
-                <div class="req-item <?php echo $ocular_passed ? 'passed' : 'failed'; ?>">
+                <div class="req-item <?php echo $ocular_passed ? 'passed' : 'failed'; ?>"
+                     data-field="OCULAR_EXAM_PASSED"
+                     data-booking-id="<?php echo $booking_id; ?>"
+                     data-pet-id="<?php echo (int)$pet_id; ?>"
+                     data-state="<?php echo $ocular_passed ? 'Yes' : 'No'; ?>">
                     <div class="req-check <?php echo $ocular_passed ? 'pass' : 'fail'; ?>">
                         <?php if ($ocular_passed): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -934,9 +1002,14 @@ function verif_badge($status) {
                             <?php echo $ocular_passed ? 'Passed' : 'Not yet passed'; ?>
                         </div>
                     </div>
+                    <div class="req-save-slot"></div>
                 </div>
 
-                <div class="req-item <?php echo $vetcard_ok ? 'passed' : 'failed'; ?>">
+                <div class="req-item <?php echo $vetcard_ok ? 'passed' : 'failed'; ?>"
+                     data-field="VETCARD_VERIFIED"
+                     data-booking-id="<?php echo $booking_id; ?>"
+                     data-pet-id="<?php echo (int)$pet_id; ?>"
+                     data-state="<?php echo $vetcard_ok ? 'Yes' : 'No'; ?>">
                     <div class="req-check <?php echo $vetcard_ok ? 'pass' : 'fail'; ?>">
                         <?php if ($vetcard_ok): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -950,9 +1023,14 @@ function verif_badge($status) {
                             <?php echo $vetcard_ok ? 'Verified' : 'Not yet verified'; ?>
                         </div>
                     </div>
+                    <div class="req-save-slot"></div>
                 </div>
 
-                <div class="req-item <?php echo $nexgard_ok ? 'passed' : 'failed'; ?>">
+                <div class="req-item <?php echo $nexgard_ok ? 'passed' : 'failed'; ?>"
+                     data-field="NEXGARD_VERIFIED"
+                     data-booking-id="<?php echo $booking_id; ?>"
+                     data-pet-id="<?php echo (int)$pet_id; ?>"
+                     data-state="<?php echo $nexgard_ok ? 'Yes' : 'No'; ?>">
                     <div class="req-check <?php echo $nexgard_ok ? 'pass' : 'fail'; ?>">
                         <?php if ($nexgard_ok): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -966,9 +1044,14 @@ function verif_badge($status) {
                             <?php echo $nexgard_ok ? 'Administered' : 'Not administered'; ?>
                         </div>
                     </div>
+                    <div class="req-save-slot"></div>
                 </div>
 
-                <div class="req-item <?php echo $consent_signed ? 'passed' : 'failed'; ?>">
+                <div class="req-item <?php echo $consent_signed ? 'passed' : 'failed'; ?>"
+                     data-field="CONSENT_FORM_SIGNED"
+                     data-booking-id="<?php echo $booking_id; ?>"
+                     data-pet-id="<?php echo (int)$pet_id; ?>"
+                     data-state="<?php echo $consent_signed ? 'Yes' : 'No'; ?>">
                     <div class="req-check <?php echo $consent_signed ? 'pass' : 'fail'; ?>">
                         <?php if ($consent_signed): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -982,6 +1065,7 @@ function verif_badge($status) {
                             <?php echo $consent_signed ? 'Signed' : 'Not yet signed'; ?>
                         </div>
                     </div>
+                    <div class="req-save-slot"></div>
                 </div>
 
                 <?php endif; ?>
@@ -1229,6 +1313,84 @@ document.getElementById('doc-viewer-overlay').addEventListener('click', function
 document.getElementById('doc-modal-close').addEventListener('click', closeDocViewer);
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeDocViewer();
+});
+
+// ─── Health & Requirements — interactive toggle ────────────────────────────
+// SVG strings reused on every optimistic toggle
+var REQ_SVG_CHECK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+var REQ_SVG_CROSS = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+// Sub-label text per field
+var REQ_LABELS = {
+    OCULAR_EXAM_PASSED:  { pass: 'Passed',       fail: 'Not yet passed'   },
+    VETCARD_VERIFIED:    { pass: 'Verified',      fail: 'Not yet verified' },
+    NEXGARD_VERIFIED:    { pass: 'Administered',  fail: 'Not administered' },
+    CONSENT_FORM_SIGNED: { pass: 'Signed',        fail: 'Not yet signed'   }
+};
+
+function applyReqState(item, isPassed) {
+    var field    = item.dataset.field;
+    var checkDiv = item.querySelector('.req-check');
+    var sublabel = item.querySelector('.req-sublabel');
+
+    item.classList.toggle('passed', isPassed);
+    item.classList.toggle('failed', !isPassed);
+
+    checkDiv.classList.toggle('pass', isPassed);
+    checkDiv.classList.toggle('fail', !isPassed);
+    checkDiv.innerHTML = isPassed ? REQ_SVG_CHECK : REQ_SVG_CROSS;
+
+    sublabel.className = 'req-sublabel ' + (isPassed ? 'pass' : 'fail');
+    sublabel.textContent = REQ_LABELS[field][isPassed ? 'pass' : 'fail'];
+}
+
+document.querySelectorAll('.req-item[data-field]').forEach(function(item) {
+    item.addEventListener('click', function() {
+        var field      = item.dataset.field;
+        var bookingId  = item.dataset.bookingId;
+        var petId      = item.dataset.petId;
+        var current    = item.dataset.state;           // 'Yes' or 'No'
+        var newState   = current === 'Yes' ? 'No' : 'Yes';
+        var slot       = item.querySelector('.req-save-slot');
+
+        // ── Optimistic update ───────────────────────────────────────────
+        item.dataset.state = newState;
+        applyReqState(item, newState === 'Yes');
+        item.classList.add('saving');
+        slot.innerHTML = '<div class="save-spinner"></div>';
+
+        // ── Persist to DB ───────────────────────────────────────────────
+        var fd = new FormData();
+        fd.append('action',     'update_health_req');
+        fd.append('field',      field);
+        fd.append('value',      newState);
+        fd.append('booking_id', bookingId);
+        fd.append('pet_id',     petId);
+
+        fetch(location.pathname + location.search, { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                item.classList.remove('saving');
+                if (data.success) {
+                    slot.innerHTML = '<span class="save-ok">&#10003;</span>';
+                    setTimeout(function() { slot.innerHTML = ''; }, 1400);
+                } else {
+                    // Revert: DB rejected the update
+                    item.dataset.state = current;
+                    applyReqState(item, current === 'Yes');
+                    slot.innerHTML = '<span class="save-err">&#33;</span>';
+                    setTimeout(function() { slot.innerHTML = ''; }, 2000);
+                }
+            })
+            .catch(function() {
+                item.classList.remove('saving');
+                // Revert: network error
+                item.dataset.state = current;
+                applyReqState(item, current === 'Yes');
+                slot.innerHTML = '<span class="save-err">&#33;</span>';
+                setTimeout(function() { slot.innerHTML = ''; }, 2000);
+            });
+    });
 });
 
 
