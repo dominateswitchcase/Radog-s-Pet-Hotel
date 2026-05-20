@@ -1,19 +1,58 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/rbac-helpers.php';
 
 // ════════════════════════════════════════════════════════════════
 // RBAC: Staff only
 // ════════════════════════════════════════════════════════════════
-if (!isset($_SESSION['account_id']) || $_SESSION['user_group_id'] != 2) {
-    header('Location: ../index.php');
-    exit();
-}
+requireStaff();
 
 $display_name = htmlspecialchars($_SESSION['username'] ?? 'Staff');
 
 // ════════════════════════════════════════════════════════════════
-// HANDLE ACCOMMODATION STATUS UPDATE
+// AUTO-SYNC ACCOMMODATION STATUS
+// Runs on every page load before anything is displayed.
+// Sets status to 'Booked' if a confirmed booking exists for today
+// or ongoing, and resets to 'Available' if no active booking exists.
+// 'Under Maintenance' is never auto-changed — only staff can set/clear it.
+// ════════════════════════════════════════════════════════════════
+try {
+    // Step 1: Mark units as 'Booked' if they have a confirmed booking
+    // that is currently active (check-in has passed, check-out has not)
+    $pdo->exec(
+        "UPDATE ACCOMMODATION
+         SET OCCUPANCY_STATUS = 'Booked'
+         WHERE OCCUPANCY_STATUS != 'Under Maintenance'
+           AND ACCOMMODATION_ID IN (
+               SELECT ACCOMMODATION_ID FROM BOOKING
+               WHERE BOOKING_STATUS = 'Confirmed'
+                 AND TRUNC(CHECK_IN_DATE)  <= TRUNC(SYSDATE)
+                 AND TRUNC(CHECK_OUT_DATE) >  TRUNC(SYSDATE)
+           )"
+    );
+
+    // Step 2: Reset to 'Available' any unit that is marked 'Booked'
+    // but has no active confirmed booking anymore (pet checked out, 
+    // booking cancelled, or no current booking covers today)
+    $pdo->exec(
+        "UPDATE ACCOMMODATION
+         SET OCCUPANCY_STATUS = 'Available'
+         WHERE OCCUPANCY_STATUS = 'Booked'
+           AND ACCOMMODATION_ID NOT IN (
+               SELECT ACCOMMODATION_ID FROM BOOKING
+               WHERE BOOKING_STATUS = 'Confirmed'
+                 AND TRUNC(CHECK_IN_DATE)  <= TRUNC(SYSDATE)
+                 AND TRUNC(CHECK_OUT_DATE) >  TRUNC(SYSDATE)
+           )"
+    );
+} catch (PDOException $e) {
+    // Non-fatal — log silently, don't break the page
+    error_log('Auto-sync accommodation status failed: ' . $e->getMessage());
+}
+
+// ════════════════════════════════════════════════════════════════
+// HANDLE ACCOMMODATION STATUS UPDATE (manual by staff)
 // ════════════════════════════════════════════════════════════════
 $success_message = '';
 $error_message   = '';
@@ -24,9 +63,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 
     if ($unit_id && in_array($new_status, ['Available', 'Booked', 'Under Maintenance'], true)) {
         try {
-            $upd = $pdo->prepare("UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = :status WHERE ACCOMMODATION_ID = :id");
-            $upd->execute(['status' => $new_status, 'id' => $unit_id]);
-            $success_message = 'Unit status updated successfully.';
+            // ── CONSTRAINT: Block update if unit has an active confirmed booking ──
+            // Staff cannot manually change status of a unit that currently has a
+            // pet booked in it. The auto-sync above handles Booked/Available
+            // transitions automatically. Manual updates are only for setting
+            // 'Under Maintenance' or clearing it back to 'Available'.
+            $conflict_check = $pdo->prepare(
+                "SELECT COUNT(*) FROM BOOKING
+                 WHERE ACCOMMODATION_ID = :id
+                   AND BOOKING_STATUS   = 'Confirmed'
+                   AND TRUNC(CHECK_IN_DATE)  <= TRUNC(SYSDATE)
+                   AND TRUNC(CHECK_OUT_DATE) >  TRUNC(SYSDATE)"
+            );
+            $conflict_check->execute(['id' => $unit_id]);
+            $has_active_booking = (int) $conflict_check->fetchColumn() > 0;
+
+            if ($has_active_booking) {
+                // Unit currently has a pet — block any manual status change.
+                // The only exception would be admin override, but staff
+                // cannot do this.
+                $error_message = 'Cannot update: this unit currently has an active guest. 
+                                  Status is managed automatically while a pet is booked in.';
+            } else {
+                // No active booking — staff may set it to 'Under Maintenance'
+                // or back to 'Available' freely.
+                $upd = $pdo->prepare(
+                    "UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = :status WHERE ACCOMMODATION_ID = :id"
+                );
+                $upd->execute(['status' => $new_status, 'id' => $unit_id]);
+                $success_message = 'Unit status updated to "' . $new_status . '" successfully.';
+            }
         } catch (PDOException $e) {
             $error_message = 'Database error: ' . $e->getMessage();
         }
@@ -34,7 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
         $error_message = 'Invalid status selected.';
     }
 }
-
+// ════════════════════════════════════════════════════════════════
+// FETCH METRICS
+// ════════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════
 // FETCH METRICS
 // ════════════════════════════════════════════════════════════════
@@ -54,11 +122,22 @@ while ($row = $status_stmt->fetch(PDO::FETCH_ASSOC)) {
 
 $total_units = array_sum($acc_status);
 
+// ── FIXED JOIN: was incorrectly joining B.ACCOMMODATION_ID = B.BOOKING_ID ──
+// Now correctly joins on B.ACCOMMODATION_ID = A.ACCOMMODATION_ID
+// and limits to active bookings only (today falls within check-in/check-out)
 $units_stmt = $pdo->query("
-    SELECT A.ACCOMMODATION_ID, A.UNIT_NAME, T.TIER_NAME, A.OCCUPANCY_STATUS, P.PET_NAME
+    SELECT A.ACCOMMODATION_ID,
+           A.UNIT_NAME,
+           T.TIER_NAME,
+           A.OCCUPANCY_STATUS,
+           P.PET_NAME
     FROM ACCOMMODATION A
     JOIN TIER T ON A.TIER_ID = T.TIER_ID
-    LEFT JOIN BOOKING B ON A.ACCOMMODATION_ID = B.BOOKING_ID AND B.BOOKING_STATUS = 'Confirmed'
+    LEFT JOIN BOOKING B
+           ON A.ACCOMMODATION_ID    = B.ACCOMMODATION_ID
+          AND B.BOOKING_STATUS      = 'Confirmed'
+          AND TRUNC(B.CHECK_IN_DATE)  <= TRUNC(SYSDATE)
+          AND TRUNC(B.CHECK_OUT_DATE) >  TRUNC(SYSDATE)
     LEFT JOIN PET P ON B.PET_ID = P.PET_ID
     ORDER BY A.UNIT_NAME ASC
 ");

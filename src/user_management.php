@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/rbac-helpers.php';
+requireAdmin();
 
 if (!isset($_SESSION['account_id'])) {
     header('Location: employee_login.php');

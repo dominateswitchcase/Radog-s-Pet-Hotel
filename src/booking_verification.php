@@ -1,6 +1,13 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/rbac-helpers.php';
+
+// ════════════════════════════════════════════════════════════════
+// SESSION GUARD
+// ════════════════════════════════════════════════════════════════
+requireLogin();
+$role = $_SESSION['role']; // 'Admin' or 'Staff'
 
 // RBAC: Ensure authorized access
 if (!isset($_SESSION['account_id'])) {

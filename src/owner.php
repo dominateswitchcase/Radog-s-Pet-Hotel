@@ -74,12 +74,19 @@ function saveDocuments($pdo, $petId, $filesArray, $docType = 'Pet Document') {
              VALUES (PET_DOC_SEQ.NEXTVAL, :dtype, :fpath, SYSDATE, :pid)
              RETURNING DOC_ID INTO :docid"
         );
-        $docId = 0;
-        $ins->bindParam(':dtype',  $docType);
-        $ins->bindParam(':fpath',  $webPath);
-        $ins->bindParam(':pid',    $petId,  PDO::PARAM_INT);
-        $ins->bindParam(':docid',  $docId,  PDO::PARAM_INT | PDO::PARAM_INPUT_OUTPUT, 38);
-        $ins->execute();
+$doc_id_row = $pdo->query("SELECT NVL(MAX(DOC_ID), 0) + 1 AS NEXT_ID FROM PET_DOCUMENT")->fetch(PDO::FETCH_ASSOC);
+$docId      = (int) $doc_id_row['NEXT_ID'];
+
+$ins = $pdo->prepare(
+    "INSERT INTO PET_DOCUMENT (DOC_ID, DOCUMENT_TYPE, FILEPATH, UPLOAD_DATE, PET_ID)
+     VALUES (:docid, :dtype, :fpath, SYSDATE, :pid)"
+);
+$ins->execute([
+    'docid' => $docId,
+    'dtype' => $docType,
+    'fpath' => $webPath,
+    'pid'   => $petId,
+]);
 
         // Insert into DOCUMENT_DETAILS (status = Pending until staff reviews)
         $det = $pdo->prepare(
@@ -102,95 +109,100 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // CREATE OWNER + PET(S)  — now handles file uploads + Tier resolution
     // =========================================================================
     if ($action === 'create_owner_pet') {
-        header('Content-Type: application/json');
+    header('Content-Type: application/json');
 
-        $first_name = trim($_POST['first_name'] ?? '');
-        $last_name  = trim($_POST['last_name']  ?? '');
-        $contact    = trim($_POST['contact']    ?? '');
-        $pets       = $_POST['pets']            ?? [];
+    $first_name = trim($_POST['first_name'] ?? '');
+    $last_name  = trim($_POST['last_name']  ?? '');
+    $contact    = trim($_POST['contact']    ?? '');
+    $pets       = $_POST['pets']            ?? [];
 
-        if (!$first_name || !$last_name || !$contact || empty($pets)) {
-            echo json_encode(['success' => false, 'message' => 'Please complete all required fields.']);
-            exit();
-        }
+    if (!$first_name || !$last_name || !$contact || empty($pets)) {
+        echo json_encode(['success' => false, 'message' => 'Please complete all required fields.']);
+        exit();
+    }
 
-        try {
-            $pdo->beginTransaction();
+    try {
+        $pdo->beginTransaction();
 
-            // 1. Insert Owner
-            $owner_stmt = $pdo->prepare(
-                "INSERT INTO OWNER (OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS)
-                 VALUES (OWNER_SEQ.NEXTVAL, :fname, :lname, :contact, 'Active')
-                 RETURNING OWNER_ID INTO :last_id"
-            );
-            $owner_id = 0;
-            $owner_stmt->bindParam(':fname',   $first_name);
-            $owner_stmt->bindParam(':lname',   $last_name);
-            $owner_stmt->bindParam(':contact', $contact);
-            $owner_stmt->bindParam(':last_id', $owner_id, PDO::PARAM_INT | PDO::PARAM_INPUT_OUTPUT, 38);
-            $owner_stmt->execute();
+        // ── Generate Owner ID manually (no sequence in schema) ──
+        $id_row   = $pdo->query("SELECT NVL(MAX(OWNER_ID), 0) + 1 AS NEXT_ID FROM OWNER")->fetch(PDO::FETCH_ASSOC);
+        $owner_id = (int) $id_row['NEXT_ID'];
 
-            // 2. Insert each pet
+        // ── Insert Owner ──
+        $owner_stmt = $pdo->prepare(
+            "INSERT INTO OWNER (OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS)
+             VALUES (:id, :fname, :lname, :contact, 'Active')"
+        );
+        $owner_stmt->execute([
+            'id'      => $owner_id,
+            'fname'   => $first_name,
+            'lname'   => $last_name,
+            'contact' => $contact,
+        ]);
+
+        // ── Insert each Pet ──
+        foreach ($pets as $idx => $pet) {
+            $weight  = (float)($pet['pet_weight'] ?? 0);
+            $tier_id = resolveTierId($pdo, $weight);
+
+            // Generate Pet ID manually
+            $pet_id_row = $pdo->query("SELECT NVL(MAX(PET_ID), 0) + 1 AS NEXT_ID FROM PET")->fetch(PDO::FETCH_ASSOC);
+            $new_pet_id = (int) $pet_id_row['NEXT_ID'];
+
             $pet_stmt = $pdo->prepare(
                 "INSERT INTO PET (
                     PET_ID, PET_NAME, SEX, WEIGHT, FEEDING_TIME,
-                    FEEDING_PORTION, OWNER_ID, CATEGORY_ID, TIER_ID, BEHAVIORAL_NOTES, STATUS
+                    FEEDING_PORTION, OWNER_ID, CATEGORY_ID, TIER_ID,
+                    BEHAVIORAL_NOTES, STATUS
                  ) VALUES (
-                    PET_SEQ.NEXTVAL, :name, :sex, :weight, :ftime,
-                    :fportion, :oid, :cid, :tid, :notes, 'Active'
-                 ) RETURNING PET_ID INTO :new_pet_id"
+                    :pid, :name, :sex, :weight, :ftime,
+                    :fportion, :oid, :cid, :tid,
+                    :notes, 'Active'
+                 )"
             );
+            $pet_stmt->execute([
+                'pid'     => $new_pet_id,
+                'name'    => $pet['pet_name'],
+                'sex'     => ucfirst($pet['sex'] ?? 'Male'),
+                'weight'  => $weight,
+                'ftime'   => $pet['feeding_time'] ?? null,
+                'fportion'=> $pet['portion']      ?? null,
+                'oid'     => $owner_id,
+                'cid'     => (int)($pet['category_id'] ?? 1),
+                'tid'     => $tier_id,
+                'notes'   => 'Initial registration onboarding.',
+            ]);
 
-            foreach ($pets as $idx => $pet) {
-                $weight  = (float)($pet['pet_weight'] ?? 0);
-                $tier_id = resolveTierId($pdo, $weight);
-                $new_pet_id = 0;
-
-                $pet_stmt->bindParam(':name',       $pet['pet_name']);
-                $pet_stmt->bindParam(':sex',        $pet['sex']);
-                $pet_stmt->bindParam(':weight',     $weight);
-                $pet_stmt->bindParam(':ftime',      $pet['feeding_time']);
-                $pet_stmt->bindParam(':fportion',   $pet['portion']);
-                $pet_stmt->bindParam(':oid',        $owner_id,   PDO::PARAM_INT);
-                $pet_stmt->bindParam(':cid',        $pet['category_id'], PDO::PARAM_INT);
-                $pet_stmt->bindParam(':tid',        $tier_id,    PDO::PARAM_INT);
-                $pet_stmt->bindParam(':notes',      $pet['notes'] ?? 'Initial registration onboarding.');
-                $pet_stmt->bindParam(':new_pet_id', $new_pet_id, PDO::PARAM_INT | PDO::PARAM_INPUT_OUTPUT, 38);
-                $pet_stmt->execute();
-
-                // 3. Save uploaded documents for this pet
-                // $_FILES structure when multipart:
-                //   $_FILES['pets']['name'][idx]['documents'][0]  ← PHP nests differently for array inputs
-                // Rebuild into a standard ['name'=>[],'tmp_name'=>[],'error'=>[]] shape
-                if (
-                    isset($_FILES['pets']['name'][$idx]['documents']) &&
-                    !empty($_FILES['pets']['name'][$idx]['documents'])
-                ) {
-                    $filesForPet = [
-                        'name'     => (array)$_FILES['pets']['name'][$idx]['documents'],
-                        'tmp_name' => (array)$_FILES['pets']['tmp_name'][$idx]['documents'],
-                        'error'    => (array)$_FILES['pets']['error'][$idx]['documents'],
-                        'size'     => (array)$_FILES['pets']['size'][$idx]['documents'],
-                        'type'     => (array)$_FILES['pets']['type'][$idx]['documents'],
-                    ];
-                    saveDocuments($pdo, $new_pet_id, $filesForPet, 'Pet Document');
-                }
+            // ── Save uploaded documents for this pet ──
+            if (
+                isset($_FILES['pets']['name'][$idx]['documents']) &&
+                !empty($_FILES['pets']['name'][$idx]['documents'])
+            ) {
+                $filesForPet = [
+                    'name'     => (array)$_FILES['pets']['name'][$idx]['documents'],
+                    'tmp_name' => (array)$_FILES['pets']['tmp_name'][$idx]['documents'],
+                    'error'    => (array)$_FILES['pets']['error'][$idx]['documents'],
+                    'size'     => (array)$_FILES['pets']['size'][$idx]['documents'],
+                    'type'     => (array)$_FILES['pets']['type'][$idx]['documents'],
+                ];
+                saveDocuments($pdo, $new_pet_id, $filesForPet, 'Pet Document');
             }
-
-            $pdo->commit();
-            echo json_encode(['success' => true, 'message' => 'Owner and pet successfully registered.']);
-            exit();
-
-        } catch (Exception $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            if (strpos($e->getMessage(), 'ORA-00001') !== false) {
-                echo json_encode(['success' => false, 'message' => 'Error: The contact number provided is already registered.']);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Database Error: ' . $e->getMessage()]);
-            }
-            exit();
         }
+
+        $pdo->commit();
+        echo json_encode(['success' => true, 'message' => 'Owner and pet successfully registered.']);
+        exit();
+
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if (strpos($e->getMessage(), 'ORA-00001') !== false) {
+            echo json_encode(['success' => false, 'message' => 'Error: The contact number provided is already registered.']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Database Error: ' . $e->getMessage()]);
+        }
+        exit();
     }
+}
 
     // =========================================================================
     // GET OWNER DATA  (unchanged logic, no file handling needed)
@@ -212,9 +224,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
-        $pets_stmt = $pdo->prepare("SELECT PET_ID, PET_NAME, CATEGORY_ID, WEIGHT, SEX, FEEDING_TIME, FEEDING_PORTION FROM PET WHERE OWNER_ID = :id ORDER BY PET_NAME");
-        $pets_stmt->execute(['id' => $owner_id]);
-        $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
+      // Replace the $pets_stmt query inside get_owner_data with this:
+$pets_stmt = $pdo->prepare("
+    SELECT P.PET_ID, P.PET_NAME, P.CATEGORY_ID, P.WEIGHT, P.SEX,
+           P.FEEDING_TIME, P.FEEDING_PORTION,
+           B.CONSENT_FORM_SIGNED, B.NEXGARD_VERIFIED,
+           B.OCULAR_EXAM_PASSED,  B.VETCARD_VERIFIED
+    FROM PET P
+    LEFT JOIN (
+        SELECT PET_ID, CONSENT_FORM_SIGNED, NEXGARD_VERIFIED,
+               OCULAR_EXAM_PASSED, VETCARD_VERIFIED
+        FROM BOOKING
+        WHERE (PET_ID, BOOKING_ID) IN (
+            SELECT PET_ID, MAX(BOOKING_ID)
+            FROM BOOKING
+            GROUP BY PET_ID
+        )
+    ) B ON P.PET_ID = B.PET_ID
+    WHERE P.OWNER_ID = :id
+    ORDER BY P.PET_NAME
+");
+$pets_stmt->execute(['id' => $owner_id]);
+$pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $docs_stmt = $pdo->prepare("
             SELECT pd.DOC_ID, pd.DOCUMENT_TYPE, pd.FILEPATH, pd.UPLOAD_DATE, pd.PET_ID,
@@ -955,10 +986,57 @@ $role = $_SESSION['role'] ?? 'Staff';
                         <!-- Note: Ocular Exam / Consent / NexGard live on BOOKING, not PET.
                              These checkboxes are shown for UX context only; staff will
                              tick them on the booking form when the pet is actually checked in. -->
-                        <div class="info-note">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                            Health verifications (Ocular Exam, NexGard, Consent Form, Vet Card) are recorded per booking. You can update them on the pet's profile once a booking is created.
-                        </div>
+                       <div class="field-group" style="margin-top: 8px; margin-bottom: 0;">
+    <label class="field-label">Check-In Verifications</label>
+    <div class="check-group">
+
+        <label class="check-label" onclick="toggleCheck(this)">
+            <input type="checkbox" name="pets[0][consent_form]" value="Yes">
+            <span class="check-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            </span>
+            <span class="check-text-wrap">
+                <span class="check-title">Consent Form Signed</span>
+                <span class="check-desc">Owner has signed the boarding consent/waiver form.</span>
+            </span>
+        </label>
+
+        <label class="check-label" onclick="toggleCheck(this)">
+            <input type="checkbox" name="pets[0][nexgard]" value="Yes">
+            <span class="check-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </span>
+            <span class="check-text-wrap">
+                <span class="check-title">NexGard Verified</span>
+                <span class="check-desc">NexGard anti-tick/flea treatment administered or confirmed.</span>
+            </span>
+        </label>
+
+        <label class="check-label" onclick="toggleCheck(this)">
+            <input type="checkbox" name="pets[0][ocular_exam]" value="Yes">
+            <span class="check-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </span>
+            <span class="check-text-wrap">
+                <span class="check-title">Ocular Exam Passed</span>
+                <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
+            </span>
+        </label>
+
+        <label class="check-label" onclick="toggleCheck(this)">
+            <input type="checkbox" name="pets[0][vetcard]" value="Yes">
+            <span class="check-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </span>
+            <span class="check-text-wrap">
+                <span class="check-title">Vet Card Verified</span>
+                <span class="check-desc">Vaccination records checked and confirmed.</span>
+            </span>
+        </label>
+
+    </div>
+    <span class="file-hint" style="margin-top: 8px;">These will be saved on the booking record when the first booking is created for this pet.</span>
+</div>
                     </div>
                 </div>
 
@@ -1083,7 +1161,56 @@ $role = $_SESSION['role'] ?? 'Staff';
                     </div>
                     <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; saved as <strong>Pending</strong> verification.</span>
                 </div>
+                <!-- ADD this block in the edit modal, after the upload field-group and before #modalAlert -->
+<div class="modal-section-label" style="margin-top: 8px;">Check-In Verifications</div>
 
+<div class="check-group" style="margin-bottom: 16px;">
+
+    <label class="check-label" id="editCheckConsent" onclick="toggleCheck(this)">
+        <input type="checkbox" id="modalConsentForm" name="consent_form" value="Yes">
+        <span class="check-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </span>
+        <span class="check-text-wrap">
+            <span class="check-title">Consent Form Signed</span>
+            <span class="check-desc">Owner has signed the boarding consent/waiver form.</span>
+        </span>
+    </label>
+
+    <label class="check-label" id="editCheckNexgard" onclick="toggleCheck(this)">
+        <input type="checkbox" id="modalNexgard" name="nexgard" value="Yes">
+        <span class="check-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </span>
+        <span class="check-text-wrap">
+            <span class="check-title">NexGard Verified</span>
+            <span class="check-desc">NexGard anti-tick/flea treatment administered or confirmed.</span>
+        </span>
+    </label>
+
+    <label class="check-label" id="editCheckOcular" onclick="toggleCheck(this)">
+        <input type="checkbox" id="modalOcularExam" name="ocular_exam" value="Yes">
+        <span class="check-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </span>
+        <span class="check-text-wrap">
+            <span class="check-title">Ocular Exam Passed</span>
+            <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
+        </span>
+    </label>
+
+    <label class="check-label" id="editCheckVetcard" onclick="toggleCheck(this)">
+        <input type="checkbox" id="modalVetcard" name="vetcard" value="Yes">
+        <span class="check-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </span>
+        <span class="check-text-wrap">
+            <span class="check-title">Vet Card Verified</span>
+            <span class="check-desc">Vaccination records checked and confirmed.</span>
+        </span>
+    </label>
+
+</div>
                 <div id="modalAlert" class="alert-wrap" style="display:none;"></div>
             </form>
         </div>

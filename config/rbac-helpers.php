@@ -1,63 +1,39 @@
 <?php
 /**
  * RBAC (Role-Based Access Control) Helper Functions
- * 
- * Centralized location for all role-checking logic used across shared pages.
- * Include this at the top of every shared page that needs role-based rendering.
- * 
- * Usage:
- *   require_once '../config/rbac-helpers.php';
- *   if (can('Admin')) { ... }
+ * config/rbac-helpers.php
  */
 
-/**
- * Check if the logged-in user has a specific role.
- * 
- * @param string $requiredRole 'Admin' or 'Staff'
- * @return bool True if user's role matches, false otherwise
- * 
- * Example:
- *   <?php if (can('Admin')): ?>
- *       <button>Delete Booking</button>
- *   <?php endif; ?>
- */
+// ── Internal normaliser ─────────────────────────────────────────────────────
+function _getRole(): string {
+    return strtolower(trim($_SESSION['role'] ?? ''));
+}
+
+// ── Boolean role checks (for conditional UI rendering) ──────────────────────
 function can(string $requiredRole): bool {
-    return isset($_SESSION['role']) && $_SESSION['role'] === $requiredRole;
+    return isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === strtolower(trim($requiredRole));
 }
 
-/**
- * Alias for can() — checks if user has Admin role.
- * 
- * @return bool
- */
-function isAdmin(): bool {
-    return can('Admin');
-}
+function isAdmin(): bool { return can('Admin'); }
+function isStaff(): bool { return can('Staff'); }
 
-/**
- * Alias for can() — checks if user has Staff role.
- * 
- * @return bool
- */
-function isStaff(): bool {
-    return can('Staff');
-}
-
-/**
- * Get the logged-in user's role (or null if not logged in).
- * 
- * @return string|null 'Admin', 'Staff', or null
- */
 function getUserRole(): ?string {
     return $_SESSION['role'] ?? null;
 }
 
+function currentRole(): string {
+    return match(_getRole()) {
+        'admin' => 'Admin',
+        'staff' => 'Staff',
+        default => htmlspecialchars($_SESSION['role'] ?? 'Unknown'),
+    };
+}
+
+// ── Access guards (call at the top of pages, redirects on failure) ──────────
+
 /**
- * Enforce role access — redirect to index.php if not logged in.
- * Call this at the top of every shared page.
- * 
- * Usage:
- *   requireLogin();
+ * Any logged-in user. Redirects guests to login.
+ * Use on shared pages (calendar, owners, pets, etc.)
  */
 function requireLogin(): void {
     if (!isset($_SESSION['account_id'], $_SESSION['role'])) {
@@ -67,18 +43,41 @@ function requireLogin(): void {
 }
 
 /**
- * Enforce role access — redirect if user doesn't have one of the allowed roles.
- * 
- * @param array $allowedRoles e.g., ['Admin', 'Staff'] or ['Admin']
- * @param string $redirectTo e.g., '../index.php'
- * 
- * Usage:
- *   requireRole(['Admin', 'Staff']); // Both roles allowed
- *   requireRole(['Admin']);          // Admin only
+ * Admin only. Redirects Staff to their dashboard, guests to login.
+ * Use on: admin_dashboard.php, user_management.php
+ */
+function requireAdmin(): void {
+    if (!isset($_SESSION['account_id'], $_SESSION['role'])) {
+        header('Location: ../index.php');
+        exit;
+    }
+    if (_getRole() !== 'admin') {
+        header('Location: staff_dashboard.php');
+        exit;
+    }
+}
+
+/**
+ * Staff only. Redirects Admin to their dashboard, guests to login.
+ * Use on: staff_dashboard.php
+ */
+function requireStaff(): void {
+    if (!isset($_SESSION['account_id'], $_SESSION['role'])) {
+        header('Location: ../index.php');
+        exit;
+    }
+    if (_getRole() !== 'staff') {
+        header('Location: admin_dashboard.php');
+        exit;
+    }
+}
+
+/**
+ * Generic role guard. Kept for backwards compatibility.
+ * Prefer requireAdmin() or requireStaff() for clarity.
  */
 function requireRole(array $allowedRoles, string $redirectTo = '../index.php'): void {
     requireLogin();
-    
     if (!in_array($_SESSION['role'], $allowedRoles, true)) {
         header('Location: ' . $redirectTo);
         exit;

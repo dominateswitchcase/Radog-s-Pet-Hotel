@@ -1,21 +1,14 @@
 <?php
 session_start();
 require_once '../config/db.php';
-
+require_once '../config/rbac-helpers.php';
 // ════════════════════════════════════════════════════════════════
 // RBAC: Admin only
 // ════════════════════════════════════════════════════════════════
-if (!isset($_SESSION['account_id'])) {
-    header('Location: ../index.php');
-    exit;
-}
+requireAdmin();
 
 $display_name = htmlspecialchars($_SESSION['username'] ?? 'Admin');
 
-// ════════════════════════════════════════════════════════════════
-// SAFE DEFAULTS — prevents undefined-variable warnings if any
-// query below throws before the variable is assigned
-// ════════════════════════════════════════════════════════════════
 $total_bookings      = 0;
 $monthly_sales       = 0;
 $total_rooms         = 0;
