@@ -90,6 +90,7 @@ $doc_stmt->execute(['pid' => $pet_id, 'pid2' => $pet_id]);
 $documents = $doc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ── Fetch health/requirement status from latest CONFIRMED or PENDING booking ─
+// These four fields are now independent checkboxes — not derived from documents.
 $req_query = "SELECT BOOKING_ID, OCULAR_EXAM_PASSED, VETCARD_VERIFIED, NEXGARD_VERIFIED, CONSENT_FORM_SIGNED
               FROM BOOKING
               WHERE PET_ID = :pid
@@ -379,7 +380,7 @@ function verif_badge($status) {
         }
 
         /* ══════════════════════════════════════════════════════
-           HEALTH REQUIREMENTS PANEL
+           HEALTH REQUIREMENTS PANEL — Independent Checkboxes
         ══════════════════════════════════════════════════════ */
         .req-grid {
             display: grid;
@@ -404,6 +405,18 @@ function verif_badge($status) {
             background: rgba(239,68,68,0.05);
             border-color: rgba(239,68,68,0.18);
         }
+
+        /* ── The actual checkbox input ── */
+        .req-checkbox {
+            /* visually hidden but functional */
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+
+        /* ── Custom checkbox visual ── */
         .req-check {
             width: 28px;
             height: 28px;
@@ -412,12 +425,15 @@ function verif_badge($status) {
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            cursor: pointer;
+            transition: background 0.18s, box-shadow 0.18s;
         }
         .req-check.pass { background: rgba(34,197,94,0.15); }
         .req-check.fail { background: rgba(239,68,68,0.1); }
         .req-check svg { width: 15px; height: 15px; }
         .req-check.pass svg { color: #15803d; }
         .req-check.fail svg { color: #dc2626; }
+
         .req-label {
             font-size: 0.85rem;
             font-weight: 600;
@@ -432,7 +448,7 @@ function verif_badge($status) {
         .req-sublabel.fail { color: #dc2626; }
         .req-sublabel.na   { color: rgba(34,34,34,0.4); }
 
-        /* Interactive toggle (only when data-field present = booking exists) */
+        /* Clickable when booking exists */
         .req-item[data-field] {
             cursor: pointer;
         }
@@ -444,7 +460,7 @@ function verif_badge($status) {
             pointer-events: none;
         }
 
-        /* Save feedback dot — sits at far right of each item */
+        /* Save feedback slot — far right of each item */
         .req-save-slot {
             margin-left: auto;
             width: 20px;
@@ -501,9 +517,7 @@ function verif_badge($status) {
             box-shadow: 0 4px 20px rgba(250,129,18,0.12);
             background: rgba(250,129,18,0.04);
         }
-        .doc-card:active {
-            transform: scale(0.995);
-        }
+        .doc-card:active { transform: scale(0.995); }
         .doc-file-icon {
             width: 38px;
             height: 38px;
@@ -553,7 +567,7 @@ function verif_badge($status) {
             background: rgba(250,129,18,0.1);
         }
 
-        /* Status badge (reusable) */
+        /* Status badge */
         .status-badge {
             display: inline-flex;
             align-items: center;
@@ -726,7 +740,6 @@ function verif_badge($status) {
             min-height: 300px;
         }
 
-        /* PDF iframe */
         .doc-viewer-iframe {
             width: 100%;
             height: 100%;
@@ -735,7 +748,6 @@ function verif_badge($status) {
             display: block;
         }
 
-        /* Image viewer */
         .doc-viewer-img-wrap {
             width: 100%;
             height: 100%;
@@ -754,7 +766,6 @@ function verif_badge($status) {
             object-fit: contain;
         }
 
-        /* Unsupported / fallback */
         .doc-viewer-fallback {
             width: 100%;
             min-height: 400px;
@@ -767,11 +778,7 @@ function verif_badge($status) {
             text-align: center;
         }
         .doc-viewer-fallback svg { width: 52px; height: 52px; color: rgba(34,34,34,0.2); }
-        .doc-viewer-fallback p {
-            font-size: 0.92rem;
-            color: rgba(34,34,34,0.5);
-            max-width: 320px;
-        }
+        .doc-viewer-fallback p { font-size: 0.92rem; color: rgba(34,34,34,0.5); max-width: 320px; }
         .doc-viewer-fallback a {
             display: inline-flex;
             align-items: center;
@@ -789,7 +796,6 @@ function verif_badge($status) {
         .doc-viewer-fallback a:hover { background: var(--orange); }
         .doc-viewer-fallback a svg { width: 15px; height: 15px; }
 
-        /* Loading spinner */
         .doc-viewer-loading {
             position: absolute;
             inset: 0;
@@ -801,7 +807,6 @@ function verif_badge($status) {
         }
         .doc-viewer-loading.hidden { display: none; }
 
-        /* Inline notice shown when iframe may be blocked */
         .doc-viewer-inline-notice {
             position: absolute;
             bottom: 0;
@@ -817,11 +822,7 @@ function verif_badge($status) {
             color: #92400e;
             z-index: 3;
         }
-        .doc-viewer-inline-notice a {
-            color: var(--orange);
-            font-weight: 600;
-            text-decoration: underline;
-        }
+        .doc-viewer-inline-notice a { color: var(--orange); font-weight: 600; text-decoration: underline; }
         .spinner {
             width: 36px;
             height: 36px;
@@ -832,7 +833,6 @@ function verif_badge($status) {
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Btn */
         .btn {
             display: inline-flex;
             align-items: center;
@@ -967,6 +967,7 @@ function verif_badge($status) {
 
     </div><div class="cards-grid-2">
 
+        <!-- ═══ HEALTH & REQUIREMENTS PANEL — Independent Checkboxes ═══ -->
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
@@ -984,11 +985,13 @@ function verif_badge($status) {
                 </div>
                 <?php else: ?>
 
+                <!-- OCULAR EXAM — independent checkbox, not derived from documents -->
                 <div class="req-item <?php echo $ocular_passed ? 'passed' : 'failed'; ?>"
                      data-field="OCULAR_EXAM_PASSED"
                      data-booking-id="<?php echo $booking_id; ?>"
                      data-pet-id="<?php echo (int)$pet_id; ?>"
-                     data-state="<?php echo $ocular_passed ? 'Yes' : 'No'; ?>">
+                     data-state="<?php echo $ocular_passed ? 'Yes' : 'No'; ?>"
+                     title="Click to toggle Ocular Exam status">
                     <div class="req-check <?php echo $ocular_passed ? 'pass' : 'fail'; ?>">
                         <?php if ($ocular_passed): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1005,11 +1008,13 @@ function verif_badge($status) {
                     <div class="req-save-slot"></div>
                 </div>
 
+                <!-- VET CARD — independent checkbox, not derived from documents -->
                 <div class="req-item <?php echo $vetcard_ok ? 'passed' : 'failed'; ?>"
                      data-field="VETCARD_VERIFIED"
                      data-booking-id="<?php echo $booking_id; ?>"
                      data-pet-id="<?php echo (int)$pet_id; ?>"
-                     data-state="<?php echo $vetcard_ok ? 'Yes' : 'No'; ?>">
+                     data-state="<?php echo $vetcard_ok ? 'Yes' : 'No'; ?>"
+                     title="Click to toggle Vet Card verification status">
                     <div class="req-check <?php echo $vetcard_ok ? 'pass' : 'fail'; ?>">
                         <?php if ($vetcard_ok): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1026,11 +1031,13 @@ function verif_badge($status) {
                     <div class="req-save-slot"></div>
                 </div>
 
+                <!-- NEXGARD — independent checkbox, not derived from documents -->
                 <div class="req-item <?php echo $nexgard_ok ? 'passed' : 'failed'; ?>"
                      data-field="NEXGARD_VERIFIED"
                      data-booking-id="<?php echo $booking_id; ?>"
                      data-pet-id="<?php echo (int)$pet_id; ?>"
-                     data-state="<?php echo $nexgard_ok ? 'Yes' : 'No'; ?>">
+                     data-state="<?php echo $nexgard_ok ? 'Yes' : 'No'; ?>"
+                     title="Click to toggle NexGard administration status">
                     <div class="req-check <?php echo $nexgard_ok ? 'pass' : 'fail'; ?>">
                         <?php if ($nexgard_ok): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1047,11 +1054,13 @@ function verif_badge($status) {
                     <div class="req-save-slot"></div>
                 </div>
 
+                <!-- CONSENT FORM — independent checkbox (was already independent) -->
                 <div class="req-item <?php echo $consent_signed ? 'passed' : 'failed'; ?>"
                      data-field="CONSENT_FORM_SIGNED"
                      data-booking-id="<?php echo $booking_id; ?>"
                      data-pet-id="<?php echo (int)$pet_id; ?>"
-                     data-state="<?php echo $consent_signed ? 'Yes' : 'No'; ?>">
+                     data-state="<?php echo $consent_signed ? 'Yes' : 'No'; ?>"
+                     title="Click to toggle Consent Form status">
                     <div class="req-check <?php echo $consent_signed ? 'pass' : 'fail'; ?>">
                         <?php if ($consent_signed): ?>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1070,7 +1079,10 @@ function verif_badge($status) {
 
                 <?php endif; ?>
 
-            </div></div><div class="panel">
+            </div>
+        </div>
+
+        <div class="panel">
             <div class="panel-header">
                 <div class="panel-icon">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -1125,61 +1137,58 @@ function verif_badge($status) {
             </div>
             <?php endif; ?>
 
-        <!-- ═══════════════════════════════════════════════════════
-     DOCUMENT VIEWER MODAL
-════════════════════════════════════════════════════════ -->
-<div id="doc-viewer-overlay" class="doc-modal-overlay" role="dialog" aria-modal="true" aria-label="Document viewer">
-    <div class="doc-modal-box" id="doc-modal-box">
+        <!-- ═══ DOCUMENT VIEWER MODAL ═══ -->
+        <div id="doc-viewer-overlay" class="doc-modal-overlay" role="dialog" aria-modal="true" aria-label="Document viewer">
+            <div class="doc-modal-box" id="doc-modal-box">
 
-        <div class="doc-modal-head">
-            <div class="doc-modal-title-wrap">
-                <div class="doc-modal-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <div class="doc-modal-head">
+                    <div class="doc-modal-title-wrap">
+                        <div class="doc-modal-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </div>
+                        <div>
+                            <div class="doc-modal-title" id="doc-modal-title">Document</div>
+                            <div class="doc-modal-subtitle" id="doc-modal-subtitle"></div>
+                        </div>
+                    </div>
+                    <div class="doc-modal-controls">
+                        <a id="doc-modal-open-link"
+                           href="#"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="doc-modal-btn"
+                           title="Open in new tab">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            Open in new tab
+                        </a>
+                        <button type="button" class="doc-modal-close" id="doc-modal-close" title="Close">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
                 </div>
-                <div>
-                    <div class="doc-modal-title" id="doc-modal-title">Document</div>
-                    <div class="doc-modal-subtitle" id="doc-modal-subtitle"></div>
+
+                <div class="doc-modal-body" id="doc-modal-body">
+                    <div class="doc-viewer-loading" id="doc-viewer-loading">
+                        <div class="spinner"></div>
+                    </div>
                 </div>
-            </div>
-            <div class="doc-modal-controls">
-                <a id="doc-modal-open-link"
-                   href="#"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="doc-modal-btn"
-                   title="Open in new tab">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    Open in new tab
-                </a>
-                <button type="button" class="doc-modal-close" id="doc-modal-close" title="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
+
             </div>
         </div>
 
-        <div class="doc-modal-body" id="doc-modal-body">
-            <!-- Loading spinner (shown while content loads) -->
-            <div class="doc-viewer-loading" id="doc-viewer-loading">
-                <div class="spinner"></div>
-            </div>
-            <!-- Content injected by JS -->
         </div>
-
     </div>
 </div>
 
-</div></div></div><script>
+<script>
 // ─── Document Viewer ───────────────────────────────────────────────────────
-// Uses event delegation on .doc-list so ANY click on a doc-card (name, icon,
-// row) triggers the preview — no fragile inline onclick strings needed.
-
 const IMAGE_EXTS = ['jpg','jpeg','png','gif','webp','bmp','svg'];
 
 function getExt(filepath) {
     return (filepath.split('.').pop() || '').toLowerCase().split('?')[0];
 }
 
-// ── Event delegation: click anywhere on a .doc-card ──────────────────────
+// Event delegation on .doc-list
 document.querySelectorAll('.doc-list').forEach(function(list) {
     list.addEventListener('click', function(e) {
         const card = e.target.closest('.doc-card[data-filepath]');
@@ -1188,7 +1197,6 @@ document.querySelectorAll('.doc-list').forEach(function(list) {
     });
 });
 
-// ── Main viewer function ──────────────────────────────────────────────────
 function openDocViewer(filepath, docType) {
     if (!filepath) return;
 
@@ -1201,19 +1209,14 @@ function openDocViewer(filepath, docType) {
     const ext      = getExt(filepath);
     const filename = filepath.split('/').pop();
 
-    // Update modal header
     title.textContent    = docType || 'Document';
     subtitle.textContent = filename;
     openLink.href        = filepath;
 
-    // Reset body to loading state
     body.innerHTML = '<div class="doc-viewer-loading"><div class="spinner"></div></div>';
-
-    // Show modal
     overlay.classList.add('open');
     document.body.style.overflow = 'hidden';
 
-    // ── Render based on file type ─────────────────────────────────────────
     if (ext === 'pdf') {
         renderPDF(body, filepath, docType);
     } else if (IMAGE_EXTS.includes(ext)) {
@@ -1223,26 +1226,20 @@ function openDocViewer(filepath, docType) {
     }
 }
 
-// ── PDF: iframe (uses browser's native PDF renderer) ─────────────────────
 function renderPDF(body, filepath, docType) {
     const iframe = document.createElement('iframe');
     iframe.className = 'doc-viewer-iframe';
     iframe.setAttribute('title', docType || 'Document');
 
-    // Hide spinner when iframe reports load
     iframe.addEventListener('load', function() {
         const spinner = body.querySelector('.doc-viewer-loading');
         if (spinner) spinner.classList.add('hidden');
     });
 
-    // If the browser blocks the iframe (X-Frame-Options / CSP) the load
-    // event still fires but the frame is blank — show fallback after a
-    // timeout so the user isn't stuck staring at a spinner.
     const guardTimer = setTimeout(function() {
         const spinner = body.querySelector('.doc-viewer-loading');
         if (spinner && !spinner.classList.contains('hidden')) {
             spinner.classList.add('hidden');
-            // Show a gentle notice alongside the (possibly blank) iframe
             const notice = document.createElement('div');
             notice.className = 'doc-viewer-inline-notice';
             notice.innerHTML =
@@ -1258,7 +1255,6 @@ function renderPDF(body, filepath, docType) {
     body.appendChild(iframe);
 }
 
-// ── Image: lightbox ───────────────────────────────────────────────────────
 function renderImage(body, filepath, docType) {
     const wrap = document.createElement('div');
     wrap.className = 'doc-viewer-img-wrap';
@@ -1280,7 +1276,6 @@ function renderImage(body, filepath, docType) {
     body.appendChild(wrap);
 }
 
-// ── Fallback: unsupported / unloadable ───────────────────────────────────
 function renderFallback(body, filepath, extLabel) {
     body.innerHTML =
         '<div class="doc-viewer-fallback">'
@@ -1295,12 +1290,10 @@ function renderFallback(body, filepath, extLabel) {
         + 'Open in new tab</a></div>';
 }
 
-// ── Close ─────────────────────────────────────────────────────────────────
 function closeDocViewer() {
     const overlay = document.getElementById('doc-viewer-overlay');
     const body    = document.getElementById('doc-modal-body');
-    // Cancel any guard timers running on iframes
-    const iframe = body.querySelector('iframe');
+    const iframe  = body.querySelector('iframe');
     if (iframe && iframe.dataset.guard) clearTimeout(Number(iframe.dataset.guard));
     overlay.classList.remove('open');
     document.body.style.overflow = '';
@@ -1315,12 +1308,14 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeDocViewer();
 });
 
-// ─── Health & Requirements — interactive toggle ────────────────────────────
-// SVG strings reused on every optimistic toggle
+// ─── Health & Requirements — interactive toggle (Yes / No) ─────────────────
+// All four fields (Ocular, VetCard, NexGard, Consent) are now independent
+// checkboxes that write directly to the BOOKING table via AJAX.
+// No document verification logic is involved.
+
 var REQ_SVG_CHECK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 var REQ_SVG_CROSS = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
-// Sub-label text per field
 var REQ_LABELS = {
     OCULAR_EXAM_PASSED:  { pass: 'Passed',       fail: 'Not yet passed'   },
     VETCARD_VERIFIED:    { pass: 'Verified',      fail: 'Not yet verified' },
@@ -1346,20 +1341,20 @@ function applyReqState(item, isPassed) {
 
 document.querySelectorAll('.req-item[data-field]').forEach(function(item) {
     item.addEventListener('click', function() {
-        var field      = item.dataset.field;
-        var bookingId  = item.dataset.bookingId;
-        var petId      = item.dataset.petId;
-        var current    = item.dataset.state;           // 'Yes' or 'No'
-        var newState   = current === 'Yes' ? 'No' : 'Yes';
-        var slot       = item.querySelector('.req-save-slot');
+        var field     = item.dataset.field;
+        var bookingId = item.dataset.bookingId;
+        var petId     = item.dataset.petId;
+        var current   = item.dataset.state;       // 'Yes' or 'No'
+        var newState  = current === 'Yes' ? 'No' : 'Yes';
+        var slot      = item.querySelector('.req-save-slot');
 
-        // ── Optimistic update ───────────────────────────────────────────
+        // Optimistic UI update
         item.dataset.state = newState;
         applyReqState(item, newState === 'Yes');
         item.classList.add('saving');
         slot.innerHTML = '<div class="save-spinner"></div>';
 
-        // ── Persist to DB ───────────────────────────────────────────────
+        // Persist to DB via AJAX — writes Yes/No directly to BOOKING column
         var fd = new FormData();
         fd.append('action',     'update_health_req');
         fd.append('field',      field);
@@ -1375,7 +1370,7 @@ document.querySelectorAll('.req-item[data-field]').forEach(function(item) {
                     slot.innerHTML = '<span class="save-ok">&#10003;</span>';
                     setTimeout(function() { slot.innerHTML = ''; }, 1400);
                 } else {
-                    // Revert: DB rejected the update
+                    // Revert on DB rejection
                     item.dataset.state = current;
                     applyReqState(item, current === 'Yes');
                     slot.innerHTML = '<span class="save-err">&#33;</span>';
@@ -1384,7 +1379,7 @@ document.querySelectorAll('.req-item[data-field]').forEach(function(item) {
             })
             .catch(function() {
                 item.classList.remove('saving');
-                // Revert: network error
+                // Revert on network error
                 item.dataset.state = current;
                 applyReqState(item, current === 'Yes');
                 slot.innerHTML = '<span class="save-err">&#33;</span>';
@@ -1392,8 +1387,6 @@ document.querySelectorAll('.req-item[data-field]').forEach(function(item) {
             });
     });
 });
-
-
 </script>
 </body>
 </html>
