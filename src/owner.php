@@ -8,20 +8,106 @@ if (!isset($_SESSION['account_id'])) {
     exit();
 }
 
-// AJAX owner/pet edit handlers
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Resolve Tier_ID from weight
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveTierId($pdo, $weight) {
+    $weight = (float)$weight;
+    $stmt = $pdo->prepare(
+        "SELECT TIER_ID FROM TIER
+         WHERE :w >= WEIGHT_MIN AND :w2 <= WEIGHT_MAX
+         FETCH FIRST 1 ROWS ONLY"
+    );
+    $stmt->execute(['w' => $weight, 'w2' => $weight]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row) return (int)$row['TIER_ID'];
+    // Fallback: largest tier for overweight pets
+    $fallback = $pdo->query(
+        "SELECT TIER_ID FROM TIER ORDER BY WEIGHT_MAX DESC FETCH FIRST 1 ROWS ONLY"
+    );
+    $row = $fallback->fetch(PDO::FETCH_ASSOC);
+    return $row ? (int)$row['TIER_ID'] : 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Save uploaded files for a pet → PET_DOCUMENT + DOCUMENT_DETAILS
+// Returns array of error strings (empty = all ok).
+// ─────────────────────────────────────────────────────────────────────────────
+function saveDocuments($pdo, $petId, $filesArray, $docType = 'Pet Document') {
+    $errors = [];
+    $uploadDir = __DIR__ . '/../uploads/pet_docs/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    $allowedMime = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    $allowedExt  = ['pdf', 'jpg', 'jpeg', 'png'];
+
+    // Normalise the $_FILES sub-array for multiple files
+    // $filesArray is like $_FILES['pets'][0]['documents'] sub-entry
+    // After normalisation each entry is ['name'=>..,'tmp_name'=>..,'error'=>..]
+    $count = is_array($filesArray['name']) ? count($filesArray['name']) : 0;
+
+    for ($i = 0; $i < $count; $i++) {
+        if ($filesArray['error'][$i] !== UPLOAD_ERR_OK) continue;
+
+        $origName = basename($filesArray['name'][$i]);
+        $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+        if (!in_array($ext, $allowedExt)) {
+            $errors[] = "File '$origName' has an unsupported extension.";
+            continue;
+        }
+
+        $safeName = 'pet_' . $petId . '_' . uniqid() . '.' . $ext;
+        $dest     = $uploadDir . $safeName;
+        $webPath  = '/uploads/pet_docs/' . $safeName;
+
+        if (!move_uploaded_file($filesArray['tmp_name'][$i], $dest)) {
+            $errors[] = "Failed to move uploaded file '$origName'.";
+            continue;
+        }
+
+        // Insert into PET_DOCUMENT
+        $ins = $pdo->prepare(
+            "INSERT INTO PET_DOCUMENT (DOC_ID, DOCUMENT_TYPE, FILEPATH, UPLOAD_DATE, PET_ID)
+             VALUES (PET_DOC_SEQ.NEXTVAL, :dtype, :fpath, SYSDATE, :pid)
+             RETURNING DOC_ID INTO :docid"
+        );
+        $docId = 0;
+        $ins->bindParam(':dtype',  $docType);
+        $ins->bindParam(':fpath',  $webPath);
+        $ins->bindParam(':pid',    $petId,  PDO::PARAM_INT);
+        $ins->bindParam(':docid',  $docId,  PDO::PARAM_INT | PDO::PARAM_INPUT_OUTPUT, 38);
+        $ins->execute();
+
+        // Insert into DOCUMENT_DETAILS (status = Pending until staff reviews)
+        $det = $pdo->prepare(
+            "INSERT INTO DOCUMENT_DETAILS (PET_ID, DOC_ID, VERIFICATION_STATUS, DATE_VERIFIED)
+             VALUES (:pid, :did, 'Pending', SYSDATE)"
+        );
+        $det->execute(['pid' => $petId, 'did' => $docId]);
+    }
+
+    return $errors;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AJAX HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    // =======================================================================
-    // JELLYACE: Create New Owner and Pet(s) Logic
-    // =======================================================================
+    // =========================================================================
+    // CREATE OWNER + PET(S)  — now handles file uploads + Tier resolution
+    // =========================================================================
     if ($action === 'create_owner_pet') {
         header('Content-Type: application/json');
-        
+
         $first_name = trim($_POST['first_name'] ?? '');
-        $last_name = trim($_POST['last_name'] ?? '');
-        $contact = trim($_POST['contact'] ?? '');
-        $pets = $_POST['pets'] ?? [];
+        $last_name  = trim($_POST['last_name']  ?? '');
+        $contact    = trim($_POST['contact']    ?? '');
+        $pets       = $_POST['pets']            ?? [];
 
         if (!$first_name || !$last_name || !$contact || empty($pets)) {
             echo json_encode(['success' => false, 'message' => 'Please complete all required fields.']);
@@ -31,47 +117,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
 
-            // 1. Insert Owner & RETURNING ID
-            $owner_stmt = $pdo->prepare("INSERT INTO OWNER (OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS) 
-                                         VALUES (OWNER_SEQ.NEXTVAL, :fname, :lname, :contact, 'Active') 
-                                         RETURNING OWNER_ID INTO :last_id");
-            
-            $owner_id = 0; 
-            $owner_stmt->bindParam(':fname', $first_name);
-            $owner_stmt->bindParam(':lname', $last_name);
+            // 1. Insert Owner
+            $owner_stmt = $pdo->prepare(
+                "INSERT INTO OWNER (OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS)
+                 VALUES (OWNER_SEQ.NEXTVAL, :fname, :lname, :contact, 'Active')
+                 RETURNING OWNER_ID INTO :last_id"
+            );
+            $owner_id = 0;
+            $owner_stmt->bindParam(':fname',   $first_name);
+            $owner_stmt->bindParam(':lname',   $last_name);
             $owner_stmt->bindParam(':contact', $contact);
             $owner_stmt->bindParam(':last_id', $owner_id, PDO::PARAM_INT | PDO::PARAM_INPUT_OUTPUT, 38);
             $owner_stmt->execute();
-            
-            // 2. Insert Pet(s)
-            $pet_stmt = $pdo->prepare("INSERT INTO PET (    
-                PET_ID, PET_NAME, SEX, WEIGHT, FEEDING_TIME, 
-                FEEDING_PORTION, OWNER_ID, CATEGORY_ID, BEHAVIORAL_NOTES, STATUS
-            ) VALUES (
-                PET_SEQ.NEXTVAL, :name, :sex, :weight, :ftime, 
-                :fportion, :oid, :cid, :notes, 'Active'
-            )");
 
-            foreach ($pets as $pet) {
-                $pet_stmt->execute([
-                    'name'    => $pet['pet_name'],
-                    'sex'     => ucfirst($pet['sex']), 
-                    'weight'  => $pet['pet_weight'],
-                    'ftime'   => $pet['feeding_time'], 
-                    'fportion'=> $pet['portion'],      
-                    'oid'     => $owner_id,
-                    'cid'     => $pet['category_id'], 
-                    'notes'   => "Initial registration onboarding."
-                ]);
+            // 2. Insert each pet
+            $pet_stmt = $pdo->prepare(
+                "INSERT INTO PET (
+                    PET_ID, PET_NAME, SEX, WEIGHT, FEEDING_TIME,
+                    FEEDING_PORTION, OWNER_ID, CATEGORY_ID, TIER_ID, BEHAVIORAL_NOTES, STATUS
+                 ) VALUES (
+                    PET_SEQ.NEXTVAL, :name, :sex, :weight, :ftime,
+                    :fportion, :oid, :cid, :tid, :notes, 'Active'
+                 ) RETURNING PET_ID INTO :new_pet_id"
+            );
+
+            foreach ($pets as $idx => $pet) {
+                $weight  = (float)($pet['pet_weight'] ?? 0);
+                $tier_id = resolveTierId($pdo, $weight);
+                $new_pet_id = 0;
+
+                $pet_stmt->bindParam(':name',       $pet['pet_name']);
+                $pet_stmt->bindParam(':sex',        $pet['sex']);
+                $pet_stmt->bindParam(':weight',     $weight);
+                $pet_stmt->bindParam(':ftime',      $pet['feeding_time']);
+                $pet_stmt->bindParam(':fportion',   $pet['portion']);
+                $pet_stmt->bindParam(':oid',        $owner_id,   PDO::PARAM_INT);
+                $pet_stmt->bindParam(':cid',        $pet['category_id'], PDO::PARAM_INT);
+                $pet_stmt->bindParam(':tid',        $tier_id,    PDO::PARAM_INT);
+                $pet_stmt->bindParam(':notes',      $pet['notes'] ?? 'Initial registration onboarding.');
+                $pet_stmt->bindParam(':new_pet_id', $new_pet_id, PDO::PARAM_INT | PDO::PARAM_INPUT_OUTPUT, 38);
+                $pet_stmt->execute();
+
+                // 3. Save uploaded documents for this pet
+                // $_FILES structure when multipart:
+                //   $_FILES['pets']['name'][idx]['documents'][0]  ← PHP nests differently for array inputs
+                // Rebuild into a standard ['name'=>[],'tmp_name'=>[],'error'=>[]] shape
+                if (
+                    isset($_FILES['pets']['name'][$idx]['documents']) &&
+                    !empty($_FILES['pets']['name'][$idx]['documents'])
+                ) {
+                    $filesForPet = [
+                        'name'     => (array)$_FILES['pets']['name'][$idx]['documents'],
+                        'tmp_name' => (array)$_FILES['pets']['tmp_name'][$idx]['documents'],
+                        'error'    => (array)$_FILES['pets']['error'][$idx]['documents'],
+                        'size'     => (array)$_FILES['pets']['size'][$idx]['documents'],
+                        'type'     => (array)$_FILES['pets']['type'][$idx]['documents'],
+                    ];
+                    saveDocuments($pdo, $new_pet_id, $filesForPet, 'Pet Document');
+                }
             }
 
             $pdo->commit();
             echo json_encode(['success' => true, 'message' => 'Owner and pet successfully registered.']);
             exit();
+
         } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
+            if ($pdo->inTransaction()) $pdo->rollBack();
             if (strpos($e->getMessage(), 'ORA-00001') !== false) {
                 echo json_encode(['success' => false, 'message' => 'Error: The contact number provided is already registered.']);
             } else {
@@ -81,6 +192,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // =========================================================================
+    // GET OWNER DATA  (unchanged logic, no file handling needed)
+    // =========================================================================
     if ($action === 'get_owner_data') {
         header('Content-Type: application/json');
         $owner_id = filter_input(INPUT_POST, 'owner_id', FILTER_VALIDATE_INT);
@@ -102,7 +216,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pets_stmt->execute(['id' => $owner_id]);
         $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Fetch documents for this owner's pets
         $docs_stmt = $pdo->prepare("
             SELECT pd.DOC_ID, pd.DOCUMENT_TYPE, pd.FILEPATH, pd.UPLOAD_DATE, pd.PET_ID,
                    dd.VERIFICATION_STATUS, dd.DATE_VERIFIED
@@ -118,70 +231,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit();
     }
 
+    // =========================================================================
+    // UPDATE OWNER + PET  — now handles new document uploads + Tier update
+    // =========================================================================
     if ($action === 'update_owner_pet') {
         header('Content-Type: application/json');
-        $owner_id = filter_input(INPUT_POST, 'owner_id', FILTER_VALIDATE_INT);
-        $pet_id = filter_input(INPUT_POST, 'pet_id', FILTER_VALIDATE_INT);
-        $first_name = trim($_POST['first_name'] ?? '');
-        $last_name = trim($_POST['last_name'] ?? '');
-        $contact = trim($_POST['contact_number'] ?? '');
-        $pet_name = trim($_POST['pet_name'] ?? '');
-        $category_id = filter_input(INPUT_POST, 'category_id', FILTER_VALIDATE_INT);
-        $weight = filter_input(INPUT_POST, 'weight', FILTER_VALIDATE_FLOAT);
-        $sex = trim($_POST['sex'] ?? '');
-        $feeding_time = trim($_POST['feeding_time'] ?? '');
-        $portion = trim($_POST['portion'] ?? '');
 
-        if (!$owner_id || !$first_name || !$last_name || !$contact || !$pet_id || !$pet_name || !$category_id || !$weight || !$sex || !$feeding_time || !$portion) {
+        $owner_id   = filter_input(INPUT_POST, 'owner_id',    FILTER_VALIDATE_INT);
+        $pet_id     = filter_input(INPUT_POST, 'pet_id',      FILTER_VALIDATE_INT);
+        $first_name = trim($_POST['first_name']      ?? '');
+        $last_name  = trim($_POST['last_name']       ?? '');
+        $contact    = trim($_POST['contact_number']  ?? '');
+        $pet_name   = trim($_POST['pet_name']        ?? '');
+        $category_id= filter_input(INPUT_POST, 'category_id', FILTER_VALIDATE_INT);
+        $weight     = filter_input(INPUT_POST, 'weight',       FILTER_VALIDATE_FLOAT);
+        $sex        = trim($_POST['sex']             ?? '');
+        $feeding_time = trim($_POST['feeding_time']  ?? '');
+        $portion    = trim($_POST['portion']         ?? '');
+
+        if (!$owner_id || !$first_name || !$last_name || !$contact ||
+            !$pet_id || !$pet_name || !$category_id || !$weight || !$sex ||
+            !$feeding_time || !$portion) {
             echo json_encode(['success' => false, 'message' => 'Please complete all required fields.']);
             exit();
         }
 
         try {
             $pdo->beginTransaction();
-            $owner_update = $pdo->prepare("UPDATE OWNER SET FIRST_NAME = :fname, LAST_NAME = :lname, CONTACT_NUMBER = :contact WHERE OWNER_ID = :id");
-            $owner_update->execute([
-                'fname' => $first_name,
-                'lname' => $last_name,
-                'contact' => $contact,
-                'id' => $owner_id,
+
+            // Update owner
+            $pdo->prepare(
+                "UPDATE OWNER SET FIRST_NAME = :fname, LAST_NAME = :lname,
+                 CONTACT_NUMBER = :contact WHERE OWNER_ID = :id"
+            )->execute(['fname' => $first_name, 'lname' => $last_name, 'contact' => $contact, 'id' => $owner_id]);
+
+            // Resolve tier from new weight
+            $tier_id = resolveTierId($pdo, $weight);
+
+            // Update pet (including Tier_ID so pet_profile page shows correct tier)
+            $pdo->prepare(
+                "UPDATE PET SET PET_NAME = :pet_name, CATEGORY_ID = :category_id,
+                 WEIGHT = :weight, SEX = :sex, FEEDING_TIME = :feeding_time,
+                 FEEDING_PORTION = :portion, TIER_ID = :tier_id
+                 WHERE PET_ID = :pet_id AND OWNER_ID = :owner_id"
+            )->execute([
+                'pet_name'    => $pet_name,
+                'category_id' => $category_id,
+                'weight'      => $weight,
+                'sex'         => ucfirst($sex),
+                'feeding_time'=> $feeding_time,
+                'portion'     => $portion,
+                'tier_id'     => $tier_id,
+                'pet_id'      => $pet_id,
+                'owner_id'    => $owner_id,
             ]);
 
-            $pet_update = $pdo->prepare("UPDATE PET SET PET_NAME = :pet_name, CATEGORY_ID = :category_id, WEIGHT = :weight, SEX = :sex, FEEDING_TIME = :feeding_time, FEEDING_PORTION = :portion WHERE PET_ID = :pet_id AND OWNER_ID = :owner_id");
-            $pet_update->execute([
-                'pet_name' => $pet_name,
-                'category_id' => $category_id,
-                'weight' => $weight,
-                'sex' => ucfirst($sex),
-                'feeding_time' => $feeding_time,
-                'portion' => $portion,
-                'pet_id' => $pet_id,
-                'owner_id' => $owner_id,
-            ]);
+            // Save any newly uploaded documents
+            if (
+                isset($_FILES['new_document']) &&
+                !empty($_FILES['new_document']['name'][0])
+            ) {
+                // Normalise: $_FILES['new_document'] is already in standard multi-file shape
+                $filesArr = $_FILES['new_document'];
+                // Make sure it's always array-of-files shape
+                if (!is_array($filesArr['name'])) {
+                    $filesArr['name']     = [$filesArr['name']];
+                    $filesArr['tmp_name'] = [$filesArr['tmp_name']];
+                    $filesArr['error']    = [$filesArr['error']];
+                    $filesArr['size']     = [$filesArr['size']];
+                    $filesArr['type']     = [$filesArr['type']];
+                }
+                saveDocuments($pdo, $pet_id, $filesArr, 'Pet Document');
+            }
 
             $pdo->commit();
             echo json_encode(['success' => true, 'message' => 'Owner and pet information updated successfully.']);
             exit();
+
         } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
+            if ($pdo->inTransaction()) $pdo->rollBack();
             echo json_encode(['success' => false, 'message' => 'Update failed: ' . $e->getMessage()]);
             exit();
         }
     }
 
+    // =========================================================================
+    // DEACTIVATE OWNER (admin only soft delete — unchanged)
+    // =========================================================================
     if ($action === 'delete_owner') {
         header('Content-Type: application/json');
-        
-        // JELLYACE SECURITY CONSTRAINT: Admin Only Soft Delete
+
         if (!isset($_SESSION['role']) || strtolower(trim($_SESSION['role'])) !== 'admin') {
             echo json_encode(['success' => false, 'message' => 'Unauthorized Access: Only Administrators can deactivate profiles.']);
             exit();
         }
 
         $owner_id = filter_input(INPUT_POST, 'owner_id', FILTER_VALIDATE_INT);
-        
         if (!$owner_id) {
             echo json_encode(['success' => false, 'message' => 'Invalid owner ID']);
             exit();
@@ -198,25 +343,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $pdo->beginTransaction();
-            $pet_update = $pdo->prepare("UPDATE PET SET STATUS = 'Inactive' WHERE OWNER_ID = :owner_id");
-            $pet_update->execute(['owner_id' => $owner_id]);
-            
-            $owner_update = $pdo->prepare("UPDATE OWNER SET STATUS = 'Inactive' WHERE OWNER_ID = :owner_id");
-            $owner_update->execute(['owner_id' => $owner_id]);
-
+            $pdo->prepare("UPDATE PET SET STATUS = 'Inactive' WHERE OWNER_ID = :owner_id")->execute(['owner_id' => $owner_id]);
+            $pdo->prepare("UPDATE OWNER SET STATUS = 'Inactive' WHERE OWNER_ID = :owner_id")->execute(['owner_id' => $owner_id]);
             $pdo->commit();
             echo json_encode(['success' => true, 'message' => 'Owner and pet profiles have been securely deactivated.']);
             exit();
         } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
+            if ($pdo->inTransaction()) $pdo->rollBack();
             echo json_encode(['success' => false, 'message' => 'Deactivation failed: ' . $e->getMessage()]);
             exit();
         }
     }
 
-    // NEW: Reactivate owner (admin only)
+    // =========================================================================
+    // REACTIVATE OWNER (admin only — unchanged)
+    // =========================================================================
     if ($action === 'reactivate_owner') {
         header('Content-Type: application/json');
 
@@ -246,24 +387,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ── Handle Search Query & Status Filter ──────────────────────────────────────
-$search      = $_GET['search'] ?? '';
-$statusFilter = $_GET['status_filter'] ?? 'active'; // 'active' | 'inactive'
-$isAdmin     = isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin';
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGE LOAD — Search / Filter
+// ─────────────────────────────────────────────────────────────────────────────
+$search       = $_GET['search']        ?? '';
+$statusFilter = $_GET['status_filter'] ?? 'active';
+$isAdmin      = isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin';
 
-// Non-admin always sees active only
-if (!$isAdmin) {
-    $statusFilter = 'active';
-}
+if (!$isAdmin) $statusFilter = 'active';
 
-$statusCondition = ($statusFilter === 'inactive') ? "STATUS = 'Inactive'" : "(STATUS = 'Active' OR STATUS IS NULL)";
+$statusCondition = ($statusFilter === 'inactive')
+    ? "STATUS = 'Inactive'"
+    : "(STATUS = 'Active' OR STATUS IS NULL)";
 
 $queryStr = "SELECT OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS FROM OWNER WHERE $statusCondition";
-$params = [];
+$params   = [];
 
 if (!empty($search)) {
-    $queryStr .= " AND (LOWER(FIRST_NAME) LIKE LOWER(:search) 
-                  OR LOWER(LAST_NAME) LIKE LOWER(:search) 
+    $queryStr .= " AND (LOWER(FIRST_NAME) LIKE LOWER(:search)
+                  OR LOWER(LAST_NAME) LIKE LOWER(:search)
                   OR CONTACT_NUMBER LIKE :search)";
     $params['search'] = '%' . $search . '%';
 }
@@ -273,7 +415,7 @@ $stmt = $pdo->prepare($queryStr);
 $stmt->execute($params);
 
 $category_stmt = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME FROM PET_CATEGORY ORDER BY CATEGORY_NAME");
-$categories = $category_stmt->fetchAll(PDO::FETCH_ASSOC);
+$categories    = $category_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $role = $_SESSION['role'] ?? 'Staff';
 ?>
@@ -317,7 +459,6 @@ $role = $_SESSION['role'] ?? 'Staff';
             padding: 28px 20px;
             position: sticky; top: 0; height: 100vh; overflow-y: auto;
         }
-
         .sidebar-brand {
             display: flex; align-items: center; gap: 14px;
             padding-bottom: 24px;
@@ -325,141 +466,51 @@ $role = $_SESSION['role'] ?? 'Staff';
             margin-bottom: 20px;
             animation: fadeUp 0.6s cubic-bezier(0.16,1,0.3,1) both;
         }
-        .sidebar-logo img {
-            width: 52px; height: 52px; object-fit: contain;
-            filter: drop-shadow(0 0 12px rgba(250,129,18,0.5));
-        }
-        .sidebar-wordmark-top {
-            font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem;
-            color: var(--orange);
-            text-shadow: 0 0 18px rgba(250,129,18,0.45);
-            line-height: 1;
-        }
-        .sidebar-wordmark-sub {
-            font-size: 0.68rem; letter-spacing: 0.18em; text-transform: uppercase;
-            color: var(--gold); opacity: 0.8; margin-top: 3px;
-        }
-
-        .sidebar-user {
-            display: flex; align-items: center; gap: 12px;
-            background: rgba(250,129,18,0.1);
-            border: 1px solid rgba(250,129,18,0.18);
-            border-radius: 12px; padding: 12px 14px;
-            margin-bottom: 28px;
-            animation: fadeUp 0.65s cubic-bezier(0.16,1,0.3,1) 0.05s both;
-        }
-        .sidebar-avatar {
-            width: 34px; height: 34px; border-radius: 50%;
-            background: var(--orange); display: flex; align-items: center; justify-content: center;
-            font-family: 'Bebas Neue', sans-serif; font-size: 1rem; color: var(--white);
-            flex-shrink: 0;
-        }
+        .sidebar-logo img { width: 52px; height: 52px; object-fit: contain; filter: drop-shadow(0 0 12px rgba(250,129,18,0.5)); }
+        .sidebar-wordmark-top { font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; color: var(--orange); text-shadow: 0 0 18px rgba(250,129,18,0.45); line-height: 1; }
+        .sidebar-wordmark-sub { font-size: 0.68rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); opacity: 0.8; margin-top: 3px; }
+        .sidebar-user { display: flex; align-items: center; gap: 12px; background: rgba(250,129,18,0.1); border: 1px solid rgba(250,129,18,0.18); border-radius: 12px; padding: 12px 14px; margin-bottom: 28px; animation: fadeUp 0.65s cubic-bezier(0.16,1,0.3,1) 0.05s both; }
+        .sidebar-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--orange); display: flex; align-items: center; justify-content: center; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; color: var(--white); flex-shrink: 0; }
         .sidebar-user-name { font-size: 0.88rem; font-weight: 600; color: var(--white); }
         .sidebar-user-role { font-size: 0.72rem; color: var(--orange); letter-spacing: 0.06em; text-transform: uppercase; }
-
-        .nav-section-label {
-            font-size: 0.68rem; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase;
-            color: rgba(245,231,198,0.4); padding: 0 4px; margin-bottom: 8px;
-        }
-        .nav-list {
-            display: flex; flex-direction: column; gap: 4px; flex-grow: 1;
-            animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both;
-        }
-        .nav-link {
-            display: flex; align-items: center; gap: 10px; padding: 11px 14px;
-            border-radius: 12px; color: rgba(245,231,198,0.7); font-size: 0.92rem;
-            text-decoration: none; transition: background 0.18s, color 0.18s;
-        }
+        .nav-section-label { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(245,231,198,0.4); padding: 0 4px; margin-bottom: 8px; }
+        .nav-list { display: flex; flex-direction: column; gap: 4px; flex-grow: 1; animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both; }
+        .nav-link { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; color: rgba(245,231,198,0.7); font-size: 0.92rem; text-decoration: none; transition: background 0.18s, color 0.18s; }
         .nav-link svg { width: 17px; height: 17px; opacity: 0.8; flex-shrink: 0; }
         .nav-link:hover { background: rgba(250,129,18,0.1); color: var(--white); }
         .nav-link.active { background: var(--orange); color: var(--white); font-weight: 600; }
         .nav-link.active svg { opacity: 1; }
-
         .sidebar-footer { margin-top: auto; padding-top: 20px; }
-        .logout-btn {
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-            padding: 12px 16px; border-radius: 12px;
-            background: transparent; border: 1.5px solid rgba(245,231,198,0.15);
-            color: rgba(245,231,198,0.7); font-size: 0.9rem; text-decoration: none;
-            transition: background 0.18s, color 0.18s, border-color 0.18s;
-        }
+        .logout-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: 12px; background: transparent; border: 1.5px solid rgba(245,231,198,0.15); color: rgba(245,231,198,0.7); font-size: 0.9rem; text-decoration: none; transition: background 0.18s, color 0.18s, border-color 0.18s; }
         .logout-btn:hover { background: rgba(250,129,18,0.12); border-color: var(--orange); color: var(--white); }
         .logout-btn svg { width: 16px; height: 16px; }
 
         /* ── MAIN CONTENT ── */
-        .main-content {
-            flex-grow: 1; padding: 40px 44px; overflow-y: auto;
-            animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both;
-        }
-
-        .page-eyebrow {
-            font-size: 0.75rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
-            color: var(--orange); display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
-        }
-        .page-eyebrow::before {
-            content: ''; display: block; width: 20px; height: 2px;
-            background: var(--orange); border-radius: 99px;
-        }
+        .main-content { flex-grow: 1; padding: 40px 44px; overflow-y: auto; animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both; }
+        .page-eyebrow { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--orange); display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .page-eyebrow::before { content: ''; display: block; width: 20px; height: 2px; background: var(--orange); border-radius: 99px; }
         .page-title { font-size: 2.4rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
         .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); margin-bottom: 32px; }
 
         /* ── TOOLBAR ── */
-        .toolbar {
-            display: flex; align-items: center; gap: 14px; margin-bottom: 24px; flex-wrap: wrap;
-        }
-        .search-wrap {
-            position: relative; flex-grow: 1; max-width: 420px;
-        }
-        .search-wrap svg {
-            position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
-            width: 16px; height: 16px; color: rgba(34,34,34,0.35); pointer-events: none;
-        }
-        .search-wrap input {
-            width: 100%; padding: 13px 16px 13px 42px;
-            border: 1.5px solid #e2d9ce; border-radius: 12px;
-            background: var(--white); color: var(--black);
-            font-family: 'DM Sans', sans-serif; font-size: 0.95rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        .search-wrap input:focus {
-            border-color: var(--orange); box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
-            outline: none;
-        }
+        .toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+        .search-wrap { position: relative; flex-grow: 1; max-width: 420px; }
+        .search-wrap svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: rgba(34,34,34,0.35); pointer-events: none; }
+        .search-wrap input { width: 100%; padding: 13px 16px 13px 42px; border: 1.5px solid #e2d9ce; border-radius: 12px; background: var(--white); color: var(--black); font-family: 'DM Sans', sans-serif; font-size: 0.95rem; transition: border-color 0.2s, box-shadow 0.2s; }
+        .search-wrap input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(250,129,18,0.15); outline: none; }
 
-        /* ── STATUS FILTER TABS (Admin only) ── */
-        .status-tabs {
-            display: flex; align-items: center;
-            background: var(--white); border: var(--border-soft); border-radius: 12px;
-            padding: 4px; gap: 2px;
-        }
-        .status-tab {
-            display: inline-flex; align-items: center; gap: 7px;
-            padding: 9px 18px; border-radius: 9px;
-            font-family: 'Bebas Neue', sans-serif; font-size: 0.88rem; letter-spacing: 0.1em;
-            text-decoration: none; color: rgba(34,34,34,0.5);
-            transition: background 0.18s, color 0.18s;
-            border: none; cursor: pointer; background: transparent; white-space: nowrap;
-        }
+        /* ── STATUS FILTER TABS ── */
+        .status-tabs { display: flex; align-items: center; background: var(--white); border: var(--border-soft); border-radius: 12px; padding: 4px; gap: 2px; }
+        .status-tab { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border-radius: 9px; font-family: 'Bebas Neue', sans-serif; font-size: 0.88rem; letter-spacing: 0.1em; text-decoration: none; color: rgba(34,34,34,0.5); transition: background 0.18s, color 0.18s; border: none; cursor: pointer; background: transparent; white-space: nowrap; }
         .status-tab svg { width: 14px; height: 14px; }
         .status-tab:hover { background: rgba(250,129,18,0.08); color: var(--orange); }
-        .status-tab.active-tab {
-            background: var(--black); color: var(--white);
-        }
+        .status-tab.active-tab { background: var(--black); color: var(--white); }
         .status-tab.active-tab:hover { background: var(--orange); }
-        .status-tab.inactive-tab.active-tab {
-            background: #be123c; color: var(--white);
-        }
+        .status-tab.inactive-tab.active-tab { background: #be123c; color: var(--white); }
         .status-tab.inactive-tab.active-tab:hover { background: #9f1239; }
 
         /* ── BUTTONS ── */
-        .btn {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 12px 22px; border: none; border-radius: 12px;
-            font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem;
-            letter-spacing: 0.12em; cursor: pointer; text-decoration: none;
-            transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
-            white-space: nowrap;
-        }
+        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border: none; border-radius: 12px; font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem; letter-spacing: 0.12em; cursor: pointer; text-decoration: none; transition: background 0.18s, transform 0.15s, box-shadow 0.15s; white-space: nowrap; }
         .btn:hover { transform: translateY(-1px); }
         .btn svg { width: 16px; height: 16px; }
         .btn-primary { background: var(--black); color: var(--white); }
@@ -475,263 +526,125 @@ $role = $_SESSION['role'] ?? 'Staff';
         .btn-sm { padding: 8px 14px; font-size: 0.82rem; }
 
         /* ── PANEL ── */
-        .panel {
-            background: var(--white); border: var(--border-soft); border-radius: 20px;
-            box-shadow: var(--shadow-card); overflow: hidden;
-        }
+        .panel { background: var(--white); border: var(--border-soft); border-radius: 20px; box-shadow: var(--shadow-card); overflow: hidden; }
 
         /* ── TABLE ── */
         .data-table { width: 100%; border-collapse: collapse; }
         .data-table thead tr { background: rgba(250,129,18,0.04); }
-        .data-table th {
-            padding: 12px 20px; font-size: 0.72rem; font-weight: 600;
-            letter-spacing: 0.12em; text-transform: uppercase; color: rgba(34,34,34,0.45);
-            text-align: left; border-bottom: 1px solid rgba(34,34,34,0.06);
-        }
+        .data-table th { padding: 12px 20px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(34,34,34,0.45); text-align: left; border-bottom: 1px solid rgba(34,34,34,0.06); }
         .data-table tbody tr { border-bottom: 1px solid rgba(34,34,34,0.05); transition: background 0.15s; }
         .data-table tbody tr:hover { background: rgba(250,129,18,0.03); }
         .data-table td { padding: 16px 20px; font-size: 0.92rem; vertical-align: middle; }
         .data-table td:last-child { text-align: right; }
-
-        .owner-id-badge {
-            font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem;
-            color: var(--orange); letter-spacing: 0.08em;
-        }
-
-        /* Inactive row styling */
+        .owner-id-badge { font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem; color: var(--orange); letter-spacing: 0.08em; }
         .data-table tbody tr.row-inactive { opacity: 0.6; }
         .data-table tbody tr.row-inactive:hover { background: rgba(190,18,60,0.03); }
-
-        .status-badge {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 5px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600;
-        }
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600; }
         .status-dot { width: 6px; height: 6px; border-radius: 50%; }
         .badge-active   { background: #f0fdf4; color: #166534; }
         .badge-active .status-dot   { background: #22c55e; }
         .badge-inactive { background: #fef2f2; color: #991b1b; }
         .badge-inactive .status-dot { background: #ef4444; }
-
         .action-group { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-
-        .empty-state {
-            padding: 64px 24px; text-align: center; color: rgba(34,34,34,0.4);
-        }
+        .empty-state { padding: 64px 24px; text-align: center; color: rgba(34,34,34,0.4); }
         .empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; opacity: 0.3; }
         .empty-state p { font-size: 0.95rem; }
 
         /* ── FORM FIELDS ── */
-        .field-label {
-            display: block; font-size: 0.75rem; font-weight: 600;
-            letter-spacing: 0.12em; text-transform: uppercase; color: #4a3f33; margin-bottom: 8px;
-        }
+        .field-label { display: block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #4a3f33; margin-bottom: 8px; }
         .field-group { margin-bottom: 20px; }
-        input[type="text"], input[type="tel"], input[type="number"], select, textarea {
-            width: 100%; padding: 13px 16px; border: 1.5px solid #e2d9ce;
-            border-radius: 12px; background: var(--beige); color: var(--black);
-            font-family: 'DM Sans', sans-serif; font-size: 0.95rem;
-            transition: border-color 0.2s, box-shadow 0.2s; appearance: none;
-        }
-        input:focus, select:focus, textarea:focus {
-            border-color: var(--orange); box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
-            outline: none; background: var(--white);
-        }
+        input[type="text"], input[type="tel"], input[type="number"], select, textarea { width: 100%; padding: 13px 16px; border: 1.5px solid #e2d9ce; border-radius: 12px; background: var(--beige); color: var(--black); font-family: 'DM Sans', sans-serif; font-size: 0.95rem; transition: border-color 0.2s, box-shadow 0.2s; appearance: none; }
+        input:focus, select:focus, textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(250,129,18,0.15); outline: none; background: var(--white); }
         input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(34,34,34,0.04); }
         textarea { resize: vertical; min-height: 90px; }
 
         /* ── FILE UPLOAD ── */
         .file-upload-wrap { position: relative; }
-        .file-upload-label {
-            display: flex; align-items: center; gap: 10px;
-            padding: 13px 16px; border: 1.5px dashed #c9bfb2;
-            border-radius: 12px; background: var(--beige);
-            cursor: pointer; font-size: 0.9rem;
-            color: rgba(34,34,34,0.55);
-            transition: border-color 0.2s, background 0.2s, color 0.2s;
-        }
+        .file-upload-label { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 1.5px dashed #c9bfb2; border-radius: 12px; background: var(--beige); cursor: pointer; font-size: 0.9rem; color: rgba(34,34,34,0.55); transition: border-color 0.2s, background 0.2s, color 0.2s; }
         .file-upload-label:hover { border-color: var(--orange); color: var(--orange); background: rgba(250,129,18,0.04); }
         .file-upload-label svg { width: 16px; height: 16px; flex-shrink: 0; }
-        .file-upload-label span.file-name {
-            font-style: italic; overflow: hidden; text-overflow: ellipsis;
-            white-space: nowrap; max-width: 340px;
-        }
+        .file-upload-label span.file-name { font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
         input[type="file"] { display: none; }
-        .file-hint {
-            font-size: 0.75rem; color: rgba(34,34,34,0.4); margin-top: 6px; display: block;
-        }
+        .file-hint { font-size: 0.75rem; color: rgba(34,34,34,0.4); margin-top: 6px; display: block; }
 
         /* ── CHECKBOXES ── */
         .check-group { display: flex; flex-direction: column; gap: 10px; }
-        .check-label {
-            display: flex; align-items: center; gap: 12px;
-            cursor: pointer; font-size: 0.92rem; color: var(--black);
-            padding: 12px 14px; border: 1.5px solid #e2d9ce;
-            border-radius: 12px; background: var(--beige);
-            transition: border-color 0.2s, background 0.2s;
-            user-select: none;
-        }
+        .check-label { display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 0.92rem; color: var(--black); padding: 12px 14px; border: 1.5px solid #e2d9ce; border-radius: 12px; background: var(--beige); transition: border-color 0.2s, background 0.2s; user-select: none; }
         .check-label:hover { border-color: var(--orange); background: rgba(250,129,18,0.04); }
-        .check-label input[type="checkbox"] {
-            width: 17px; height: 17px; flex-shrink: 0;
-            accent-color: var(--orange);
-            cursor: pointer; padding: 0; border-radius: 4px;
-        }
+        .check-label input[type="checkbox"] { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--orange); cursor: pointer; padding: 0; border-radius: 4px; }
         .check-label input[type="checkbox"]:focus { outline: none; box-shadow: none; }
         .check-label.checked { border-color: var(--orange); background: rgba(250,129,18,0.08); }
-        .check-icon {
-            width: 32px; height: 32px; border-radius: 8px;
-            background: rgba(250,129,18,0.1);
-            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-        }
+        .check-icon { width: 32px; height: 32px; border-radius: 8px; background: rgba(250,129,18,0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .check-icon svg { width: 15px; height: 15px; color: var(--orange); }
         .check-text-wrap { flex-grow: 1; }
         .check-title { font-size: 0.9rem; font-weight: 600; color: var(--black); line-height: 1.2; }
         .check-desc  { font-size: 0.78rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
 
         /* ── ALERTS ── */
-        .alert {
-            display: flex; align-items: flex-start; gap: 10px;
-            padding: 14px 18px; border-radius: 12px; font-size: 0.9rem; margin-bottom: 0;
-        }
+        .alert { display: flex; align-items: flex-start; gap: 10px; padding: 14px 18px; border-radius: 12px; font-size: 0.9rem; margin-bottom: 0; }
         .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
         .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
         .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+        .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 
         /* ── MODALS ── */
-        .modal-overlay {
-            display: none; position: fixed; inset: 0;
-            background: rgba(34,34,34,0.55); backdrop-filter: blur(3px);
-            z-index: 100; align-items: center; justify-content: center; padding: 20px;
-        }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(34,34,34,0.55); backdrop-filter: blur(3px); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
         .modal-overlay.open { display: flex; }
-        .modal-box {
-            background: var(--white); border-radius: 20px; width: min(100%, 560px);
-            box-shadow: 0 32px 80px rgba(15,23,42,0.18); overflow: hidden;
-            animation: fadeUp 0.35s cubic-bezier(0.16,1,0.3,1) both;
-            max-height: 92vh; display: flex; flex-direction: column;
-        }
+        .modal-box { background: var(--white); border-radius: 20px; width: min(100%, 560px); box-shadow: 0 32px 80px rgba(15,23,42,0.18); overflow: hidden; animation: fadeUp 0.35s cubic-bezier(0.16,1,0.3,1) both; max-height: 92vh; display: flex; flex-direction: column; }
         .modal-box-lg { width: min(100%, 680px); }
-        .modal-head {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 22px 28px; flex-shrink: 0;
-            background-color: var(--black);
-            background-image: repeating-linear-gradient(-55deg, transparent, transparent 18px, rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px);
-        }
+        .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 28px; flex-shrink: 0; background-color: var(--black); background-image: repeating-linear-gradient(-55deg, transparent, transparent 18px, rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px); }
         .modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; color: var(--white); letter-spacing: 0.06em; }
-        .modal-close {
-            background: none; border: none; cursor: pointer; color: rgba(245,231,198,0.6);
-            width: 32px; height: 32px; border-radius: 8px; display: flex;
-            align-items: center; justify-content: center; transition: background 0.18s, color 0.18s;
-        }
+        .modal-close { background: none; border: none; cursor: pointer; color: rgba(245,231,198,0.6); width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: background 0.18s, color 0.18s; }
         .modal-close:hover { background: rgba(250,129,18,0.2); color: var(--white); }
         .modal-close svg { width: 18px; height: 18px; }
         .modal-body { padding: 28px; overflow-y: auto; flex-grow: 1; }
-        .modal-foot {
-            display: flex; align-items: center; justify-content: flex-end; gap: 12px;
-            padding: 20px 28px; border-top: 1px solid rgba(34,34,34,0.07); flex-shrink: 0;
-        }
-
-        .modal-section-label {
-            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
-            color: var(--orange); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
-        }
-        .modal-section-label::after {
-            content: ''; flex-grow: 1; height: 1px; background: rgba(250,129,18,0.2);
-        }
-
+        .modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 20px 28px; border-top: 1px solid rgba(34,34,34,0.07); flex-shrink: 0; }
+        .modal-section-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--orange); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .modal-section-label::after { content: ''; flex-grow: 1; height: 1px; background: rgba(250,129,18,0.2); }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
         .col-full { grid-column: 1 / -1; }
-
         .radio-group { display: flex; gap: 16px; }
-        .radio-label {
-            display: flex; align-items: center; gap: 8px; cursor: pointer;
-            font-size: 0.92rem; color: var(--black);
-        }
+        .radio-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.92rem; color: var(--black); }
         .radio-label input[type="radio"] { width: auto; accent-color: var(--orange); }
 
         /* Pet entry card */
-        .pet-entry {
-            background: var(--beige); border: 1.5px solid #e2d9ce; border-radius: 14px;
-            padding: 20px; margin-bottom: 16px; position: relative;
-        }
-        .pet-entry-header {
-            font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 0.06em;
-            color: var(--orange); margin-bottom: 14px;
-        }
-        .btn-remove-pet {
-            position: absolute; top: 14px; right: 14px;
-            background: #fff1f2; border: 1px solid #fecdd3; color: #be123c;
-            border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 0.78rem;
-            display: flex; align-items: center; gap: 5px; transition: background 0.15s;
-        }
+        .pet-entry { background: var(--beige); border: 1.5px solid #e2d9ce; border-radius: 14px; padding: 20px; margin-bottom: 16px; position: relative; }
+        .pet-entry-header { font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 0.06em; color: var(--orange); margin-bottom: 14px; }
+        .btn-remove-pet { position: absolute; top: 14px; right: 14px; background: #fff1f2; border: 1px solid #fecdd3; color: #be123c; border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 0.78rem; display: flex; align-items: center; gap: 5px; transition: background 0.15s; }
         .btn-remove-pet:hover { background: #ffe4e8; }
         .btn-remove-pet svg { width: 13px; height: 13px; }
-
-        .btn-add-pet {
-            width: 100%; padding: 12px; border: 1.5px dashed #c9bfb2;
-            border-radius: 12px; background: transparent; color: rgba(34,34,34,0.5);
-            font-family: 'DM Sans', sans-serif; font-size: 0.9rem; cursor: pointer;
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-            transition: border-color 0.18s, color 0.18s, background 0.18s;
-        }
+        .btn-add-pet { width: 100%; padding: 12px; border: 1.5px dashed #c9bfb2; border-radius: 12px; background: transparent; color: rgba(34,34,34,0.5); font-family: 'DM Sans', sans-serif; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: border-color 0.18s, color 0.18s, background 0.18s; }
         .btn-add-pet:hover { border-color: var(--orange); color: var(--orange); background: rgba(250,129,18,0.04); }
         .btn-add-pet svg { width: 15px; height: 15px; }
-
         .alert-wrap { margin-top: 16px; }
 
-        /* ── DOCUMENT LIST (Edit Modal) ── */
+        /* Doc list in edit modal */
         .doc-list { display: flex; flex-direction: column; gap: 10px; }
-        .doc-item {
-            display: flex; align-items: center; gap: 12px;
-            padding: 12px 14px; background: var(--beige);
-            border: 1.5px solid #e2d9ce; border-radius: 12px;
-            transition: border-color 0.18s;
-        }
+        .doc-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--beige); border: 1.5px solid #e2d9ce; border-radius: 12px; transition: border-color 0.18s; }
         .doc-item:hover { border-color: rgba(250,129,18,0.3); }
-        .doc-icon {
-            width: 34px; height: 34px; border-radius: 8px;
-            background: rgba(250,129,18,0.1);
-            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-        }
+        .doc-icon { width: 34px; height: 34px; border-radius: 8px; background: rgba(250,129,18,0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .doc-icon svg { width: 16px; height: 16px; color: var(--orange); }
         .doc-info { flex-grow: 1; min-width: 0; }
         .doc-type { font-size: 0.88rem; font-weight: 600; color: var(--black); }
         .doc-meta { font-size: 0.75rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
-        .doc-badge {
-            display: inline-flex; align-items: center; gap: 5px;
-            padding: 4px 10px; border-radius: 99px; font-size: 0.72rem; font-weight: 600;
-            white-space: nowrap; flex-shrink: 0;
-        }
+        .doc-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
         .doc-badge-approved  { background: #f0fdf4; color: #166534; }
         .doc-badge-pending   { background: #fffbeb; color: #92400e; }
         .doc-badge-rejected  { background: #fef2f2; color: #991b1b; }
         .doc-badge-none      { background: rgba(34,34,34,0.06); color: rgba(34,34,34,0.45); }
-        .doc-link {
-            display: inline-flex; align-items: center; gap: 5px;
-            font-size: 0.78rem; color: var(--orange); text-decoration: none;
-            padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(250,129,18,0.25);
-            background: rgba(250,129,18,0.05); transition: background 0.15s;
-            flex-shrink: 0;
-        }
+        .doc-link { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--orange); text-decoration: none; padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(250,129,18,0.25); background: rgba(250,129,18,0.05); transition: background 0.15s; flex-shrink: 0; }
         .doc-link:hover { background: rgba(250,129,18,0.12); }
         .doc-link svg { width: 12px; height: 12px; }
+        .doc-empty { padding: 20px; text-align: center; color: rgba(34,34,34,0.35); font-size: 0.88rem; background: var(--beige); border-radius: 12px; border: 1.5px dashed #e2d9ce; }
+        .doc-loading { padding: 20px; text-align: center; color: rgba(34,34,34,0.4); font-size: 0.88rem; }
 
-        .doc-empty {
-            padding: 20px; text-align: center; color: rgba(34,34,34,0.35);
-            font-size: 0.88rem; background: var(--beige); border-radius: 12px;
-            border: 1.5px dashed #e2d9ce;
-        }
-        .doc-loading {
-            padding: 20px; text-align: center; color: rgba(34,34,34,0.4);
-            font-size: 0.88rem;
-        }
+        /* ── NOTE BANNER (explains checkbox context) ── */
+        .info-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 0.82rem; margin-bottom: 16px; }
+        .info-note svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; }
 
         /* ── ANIMATIONS ── */
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
         /* ── RESPONSIVE ── */
         @media (max-width: 900px) {
@@ -804,11 +717,6 @@ $role = $_SESSION['role'] ?? 'Staff';
             Pets
         </a>
 
-        <!-- <a href="checkout.php" class="nav-link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-            Checkout / Payments
-        </a> -->
-
         <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
         <a href="user_management.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -836,7 +744,6 @@ $role = $_SESSION['role'] ?? 'Staff';
 
     <!-- Toolbar -->
     <div class="toolbar">
-        <!-- Search (wraps its own form so GET params work) -->
         <div class="search-wrap">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <form action="owner.php" method="GET" style="display:contents;">
@@ -848,24 +755,20 @@ $role = $_SESSION['role'] ?? 'Staff';
         </div>
 
         <?php if ($isAdmin): ?>
-        <!-- Status Filter Tabs — Admin Only -->
         <div class="status-tabs">
             <a href="owner.php?status_filter=active<?php echo !empty($search) ? '&search='.urlencode($search) : ''; ?>"
-               class="status-tab active-tab <?php echo $statusFilter === 'active' ? 'active-tab' : ''; ?>"
-               style="<?php echo $statusFilter !== 'active' ? 'background:transparent;color:rgba(34,34,34,0.5);' : ''; ?>">
+               class="status-tab <?php echo $statusFilter === 'active' ? 'active-tab' : ''; ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 Active
             </a>
             <a href="owner.php?status_filter=inactive<?php echo !empty($search) ? '&search='.urlencode($search) : ''; ?>"
-               class="status-tab inactive-tab <?php echo $statusFilter === 'inactive' ? 'active-tab' : ''; ?>"
-               style="<?php echo $statusFilter !== 'inactive' ? 'background:transparent;color:rgba(34,34,34,0.5);' : ''; ?>">
+               class="status-tab inactive-tab <?php echo $statusFilter === 'inactive' ? 'active-tab' : ''; ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
                 Archived
             </a>
         </div>
         <?php endif; ?>
 
-        <!-- Register button — only for active view or staff -->
         <?php if (!$isAdmin || $statusFilter === 'active'): ?>
         <button type="button" class="btn btn-primary" onclick="openModal('createOwnerModal')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
@@ -967,7 +870,8 @@ $role = $_SESSION['role'] ?? 'Staff';
             </button>
         </div>
         <div class="modal-body">
-            <form id="createOwnerForm">
+            <!-- FIX: enctype="multipart/form-data" is required for file uploads -->
+            <form id="createOwnerForm" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="create_owner_pet">
 
                 <div class="modal-section-label">Owner Information</div>
@@ -990,7 +894,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                 <div class="modal-section-label">Pet Information</div>
 
                 <div id="modalPetContainer">
-                    <!-- ── PET ENTRY TEMPLATE ── -->
                     <div class="pet-entry">
                         <div class="pet-entry-header">Pet #1</div>
 
@@ -1023,7 +926,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                             </div>
                         </div>
 
-                        <div class="grid-2" style="margin-bottom:0;">
+                        <div class="grid-2" style="margin-bottom:16px;">
                             <div class="field-group">
                                 <label class="field-label">Feeding Time</label>
                                 <input type="text" name="pets[0][feeding_time]" placeholder="e.g. BID / 08:00" required>
@@ -1034,47 +937,29 @@ $role = $_SESSION['role'] ?? 'Staff';
                             </div>
                         </div>
 
-                        <div class="field-group" style="margin-top:4px;">
+                        <div class="field-group">
                             <label class="field-label">Attach Pet Documents</label>
                             <div class="file-upload-wrap">
                                 <label class="file-upload-label" id="fileLabel_0" for="petDoc_0">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                     <span class="file-name">Upload Vetcard, Waiver, or Consent Form&hellip;</span>
                                 </label>
+                                <!-- name uses array notation so PHP populates $_FILES['pets'][...] -->
                                 <input type="file" name="pets[0][documents][]" id="petDoc_0"
                                        accept=".pdf,.jpg,.jpeg,.png" multiple
                                        onchange="updateFileLabel(this, 'fileLabel_0')">
                             </div>
-                            <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files.</span>
+                            <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files. Documents will be saved as <strong>Pending</strong> verification.</span>
                         </div>
 
-                        <div class="field-group" style="margin-bottom:0;">
-                            <label class="field-label">Check-In Verifications</label>
-                            <div class="check-group">
-                                <label class="check-label" onclick="toggleCheck(this)">
-                                    <input type="checkbox" name="pets[0][ocular_exam]" value="Yes">
-                                    <span class="check-icon">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                    </span>
-                                    <span class="check-text-wrap">
-                                        <span class="check-title">Ocular Exam Passed</span>
-                                        <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
-                                    </span>
-                                </label>
-                                <label class="check-label" onclick="toggleCheck(this)">
-                                    <input type="checkbox" name="pets[0][vaccine_verified]" value="Yes">
-                                    <span class="check-icon">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                                    </span>
-                                    <span class="check-text-wrap">
-                                        <span class="check-title">Vaccination Verified</span>
-                                        <span class="check-desc">Vaccination records checked and confirmed.</span>
-                                    </span>
-                                </label>
-                            </div>
+                        <!-- Note: Ocular Exam / Consent / NexGard live on BOOKING, not PET.
+                             These checkboxes are shown for UX context only; staff will
+                             tick them on the booking form when the pet is actually checked in. -->
+                        <div class="info-note">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            Health verifications (Ocular Exam, NexGard, Consent Form, Vet Card) are recorded per booking. You can update them on the pet's profile once a booking is created.
                         </div>
                     </div>
-                    <!-- ── END PET ENTRY TEMPLATE ── -->
                 </div>
 
                 <button type="button" id="modalAddPetBtn" class="btn-add-pet" style="margin-bottom:16px;">
@@ -1107,9 +992,10 @@ $role = $_SESSION['role'] ?? 'Staff';
             </button>
         </div>
         <div class="modal-body">
-            <form id="editOwnerForm">
+            <!-- FIX: enctype="multipart/form-data" required for new document uploads -->
+            <form id="editOwnerForm" enctype="multipart/form-data">
                 <input type="hidden" id="modalOwnerId" name="owner_id">
-                <input type="hidden" id="modalPetId" name="pet_id">
+                <input type="hidden" id="modalPetId"   name="pet_id">
 
                 <div class="modal-section-label">Owner Information</div>
 
@@ -1177,51 +1063,12 @@ $role = $_SESSION['role'] ?? 'Staff';
                     </div>
                 </div>
 
-                <!-- ══════════════════════════════════════
-                     DOCUMENT VERIFICATIONS SECTION
-                ════════════════════════════════════════ -->
-                <div class="modal-section-label">Document Verifications</div>
-
-                <!-- Check-In Verifications (read-only display + checkboxes) -->
-                <div class="field-group" style="margin-bottom:16px;">
-                    <label class="field-label">Verification Status</label>
-                    <div class="check-group" id="editVerificationChecks">
-                        <!-- Ocular Exam -->
-                        <label class="check-label" onclick="toggleCheck(this)">
-                            <input type="checkbox" name="ocular_exam" id="editOcularExam" value="Yes">
-                            <span class="check-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            </span>
-                            <span class="check-text-wrap">
-                                <span class="check-title">Ocular Exam Passed</span>
-                                <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
-                            </span>
-                        </label>
-                        <!-- Vaccination Verified -->
-                        <label class="check-label" onclick="toggleCheck(this)">
-                            <input type="checkbox" name="vaccine_verified" id="editVaccineVerified" value="Yes">
-                            <span class="check-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                            </span>
-                            <span class="check-text-wrap">
-                                <span class="check-title">Vaccination Verified</span>
-                                <span class="check-desc">Vaccination records checked and confirmed.</span>
-                            </span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- ── Uploaded Documents ── -->
                 <div class="modal-section-label">Uploaded Documents</div>
 
                 <div id="editDocumentsList">
-                    <div class="doc-loading">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;display:inline-block;vertical-align:middle;margin-right:6px;opacity:0.4;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        Select an owner above to load documents.
-                    </div>
+                    <div class="doc-loading">Select an owner above to load documents.</div>
                 </div>
 
-                <!-- ── Upload New Document ── -->
                 <div class="field-group" style="margin-top:16px;">
                     <label class="field-label">Upload Additional Document</label>
                     <div class="file-upload-wrap">
@@ -1229,11 +1076,12 @@ $role = $_SESSION['role'] ?? 'Staff';
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             <span class="file-name">Attach new document&hellip;</span>
                         </label>
+                        <!-- FIX: name="new_document[]" matches what the PHP handler reads -->
                         <input type="file" name="new_document[]" id="editPetDoc"
                                accept=".pdf,.jpg,.jpeg,.png" multiple
                                onchange="updateFileLabel(this, 'editFileLabel')">
                     </div>
-                    <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files.</span>
+                    <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; saved as <strong>Pending</strong> verification.</span>
                 </div>
 
                 <div id="modalAlert" class="alert-wrap" style="display:none;"></div>
@@ -1250,29 +1098,19 @@ $role = $_SESSION['role'] ?? 'Staff';
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
-     JAVASCRIPT
+     JAVASCRIPT  (all logic preserved, encoding fix applied)
 ════════════════════════════════════════════════════════════ -->
 <script>
     // ── Modal helpers ──────────────────────────────────────
-    function openModal(id) {
-        document.getElementById(id).classList.add('open');
-    }
-    function closeModal(id) {
-        document.getElementById(id).classList.remove('open');
-    }
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-    // Close on overlay click
     document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
-        overlay.addEventListener('click', function(e) {
-            if (e.target === this) closeModal(this.id);
-        });
+        overlay.addEventListener('click', function(e) { if (e.target === this) closeModal(this.id); });
     });
-    // Close on Escape
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
-            document.querySelectorAll('.modal-overlay.open').forEach(function(m) {
-                closeModal(m.id);
-            });
+            document.querySelectorAll('.modal-overlay.open').forEach(function(m) { closeModal(m.id); });
         }
     });
 
@@ -1292,8 +1130,7 @@ $role = $_SESSION['role'] ?? 'Staff';
         if (!label) return;
         var span = label.querySelector('.file-name');
         if (input.files && input.files.length > 0) {
-            var names = Array.from(input.files).map(function(f) { return f.name; }).join(', ');
-            span.textContent = names;
+            span.textContent = Array.from(input.files).map(function(f) { return f.name; }).join(', ');
             label.style.borderColor = 'var(--orange)';
             label.style.color = 'var(--orange)';
         } else {
@@ -1303,24 +1140,10 @@ $role = $_SESSION['role'] ?? 'Staff';
         }
     }
 
-    // ── Checkbox toggle visual state ───────────────────────
-    function toggleCheck(labelEl) {
-        setTimeout(function() {
-            var cb = labelEl.querySelector('input[type="checkbox"]');
-            if (cb && cb.checked) {
-                labelEl.classList.add('checked');
-            } else {
-                labelEl.classList.remove('checked');
-            }
-        }, 0);
-    }
-
     // ── Render document list in edit modal ─────────────────
     function renderDocuments(documents, currentPetId) {
         var container = document.getElementById('editDocumentsList');
-        var petDocs = documents.filter(function(d) {
-            return String(d.PET_ID) === String(currentPetId);
-        });
+        var petDocs = documents.filter(function(d) { return String(d.PET_ID) === String(currentPetId); });
 
         if (petDocs.length === 0) {
             container.innerHTML = '<div class="doc-empty">No documents uploaded for this pet yet.</div>';
@@ -1331,30 +1154,18 @@ $role = $_SESSION['role'] ?? 'Staff';
         petDocs.forEach(function(doc) {
             var status = doc.VERIFICATION_STATUS || 'none';
             var statusLower = status.toLowerCase();
-            var badgeClass = 'doc-badge-' + (statusLower === 'approved' ? 'approved' : statusLower === 'pending' ? 'pending' : statusLower === 'rejected' ? 'rejected' : 'none');
+            var badgeClass = 'doc-badge-' + (['approved','pending','rejected'].includes(statusLower) ? statusLower : 'none');
             var statusLabel = status === 'none' ? 'Unverified' : status;
-
             var dotColor = statusLower === 'approved' ? '#22c55e' : statusLower === 'pending' ? '#f59e0b' : statusLower === 'rejected' ? '#ef4444' : '#94a3b8';
-
             var uploadDate = doc.UPLOAD_DATE ? doc.UPLOAD_DATE.split('T')[0] : '—';
             var verifiedDate = doc.DATE_VERIFIED ? doc.DATE_VERIFIED.split('T')[0] : '';
 
             html += '<div class="doc-item">';
-            html +=   '<div class="doc-icon">';
-            html +=     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
-            html +=   '</div>';
-            html +=   '<div class="doc-info">';
-            html +=     '<div class="doc-type">' + (doc.DOCUMENT_TYPE || 'Document') + '</div>';
-            html +=     '<div class="doc-meta">Uploaded: ' + uploadDate + (verifiedDate ? ' &middot; Verified: ' + verifiedDate : '') + '</div>';
-            html +=   '</div>';
-            html +=   '<span class="doc-badge ' + badgeClass + '">';
-            html +=     '<svg style="width:7px;height:7px;fill:' + dotColor + ';flex-shrink:0;" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>';
-            html +=     statusLabel;
-            html +=   '</span>';
-            html +=   '<a href="' + doc.FILEPATH + '" target="_blank" class="doc-link">';
-            html +=     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
-            html +=     'View';
-            html +=   '</a>';
+            html +=   '<div class="doc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>';
+            html +=   '<div class="doc-info"><div class="doc-type">' + (doc.DOCUMENT_TYPE || 'Document') + '</div>';
+            html +=   '<div class="doc-meta">Uploaded: ' + uploadDate + (verifiedDate ? ' &middot; Verified: ' + verifiedDate : '') + '</div></div>';
+            html +=   '<span class="doc-badge ' + badgeClass + '"><svg style="width:7px;height:7px;fill:' + dotColor + ';flex-shrink:0;" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>' + statusLabel + '</span>';
+            html +=   '<a href="' + doc.FILEPATH + '" target="_blank" class="doc-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>View</a>';
             html += '</div>';
         });
         html += '</div>';
@@ -1366,44 +1177,34 @@ $role = $_SESSION['role'] ?? 'Staff';
         let ownerPets = [];
         let allDocuments = [];
 
-        // ====================================================
-        // JELLYACE: "Add Another Pet" Dynamic Cloning Logic
-        // ====================================================
+        // ── "Add Another Pet" dynamic cloning ────────────────
         document.getElementById('modalAddPetBtn').addEventListener('click', function() {
             const petContainer = document.getElementById('modalPetContainer');
             const petEntries = petContainer.querySelectorAll('.pet-entry');
             const newIndex = petEntries.length;
-            
             const firstPet = petEntries[0];
             const newPet = firstPet.cloneNode(true);
-            
+
             newPet.querySelector('.pet-entry-header').textContent = 'Pet #' + (newIndex + 1);
 
-            const inputs = newPet.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], select, textarea');
-            inputs.forEach(function(input) {
-                const name = input.name;
-                if (name) {
-                    input.name = name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
-                }
+            newPet.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], select, textarea').forEach(function(input) {
+                if (input.name) input.name = input.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
                 input.value = '';
             });
-
             newPet.querySelectorAll('input[type="radio"]').forEach(function(radio) {
-                if (radio.name) {
-                    radio.name = radio.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
-                }
+                if (radio.name) radio.name = radio.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
                 radio.checked = radio.value === 'Male';
             });
 
             var fileInput = newPet.querySelector('input[type="file"]');
             var fileLabel = newPet.querySelector('.file-upload-label');
             if (fileInput && fileLabel) {
-                var newFileId = 'petDoc_' + newIndex;
-                fileInput.name = 'pets[' + newIndex + '][documents][]';
-                fileInput.id = newFileId;
-                var newLabelId = 'fileLabel_' + newIndex;
+                var newFileId   = 'petDoc_' + newIndex;
+                var newLabelId  = 'fileLabel_' + newIndex;
+                fileInput.name  = 'pets[' + newIndex + '][documents][]';
+                fileInput.id    = newFileId;
                 fileLabel.setAttribute('for', newFileId);
-                fileLabel.id = newLabelId;
+                fileLabel.id    = newLabelId;
                 fileInput.setAttribute('onchange', "updateFileLabel(this, '" + newLabelId + "')");
                 var fileSpan = fileLabel.querySelector('.file-name');
                 if (fileSpan) fileSpan.textContent = 'Upload Vetcard, Waiver, or Consent Form\u2026';
@@ -1411,46 +1212,30 @@ $role = $_SESSION['role'] ?? 'Staff';
                 fileLabel.style.color = '';
             }
 
-            newPet.querySelectorAll('.check-label').forEach(function(cl) {
-                cl.classList.remove('checked');
-                var cb = cl.querySelector('input[type="checkbox"]');
-                if (cb) {
-                    cb.checked = false;
-                    if (cb.name) {
-                        cb.name = cb.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
-                    }
-                }
-            });
+            // Remove any existing remove button from clone, add fresh one
+            var existingRemove = newPet.querySelector('.btn-remove-pet');
+            if (existingRemove) existingRemove.remove();
 
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
             removeBtn.className = 'btn-remove-pet';
             removeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Remove';
-            removeBtn.addEventListener('click', function() {
-                newPet.remove();
-            });
+            removeBtn.addEventListener('click', function() { newPet.remove(); });
             newPet.appendChild(removeBtn);
             petContainer.appendChild(newPet);
         });
 
-        // ====================================================
-        // AJAX Form Submission for Create
-        // ====================================================
+        // ── CREATE: submit via FormData (preserves files) ─────
         document.getElementById('submitNewOwnerBtn').addEventListener('click', function() {
             const form = document.getElementById('createOwnerForm');
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
+            if (!form.checkValidity()) { form.reportValidity(); return; }
 
-            const formData = new URLSearchParams(new FormData(form));
+            // FIX: use FormData directly — do NOT convert to URLSearchParams.
+            // URLSearchParams strips all file data; FormData sends multipart.
+            const formData = new FormData(form);
 
-            fetch('owner.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: formData.toString()
-            })
-            .then(response => response.json())
+            fetch('owner.php', { method: 'POST', body: formData })
+            .then(r => r.json())
             .then(data => {
                 if (data.success) {
                     showAlert('createModalAlert', 'success', data.message);
@@ -1465,100 +1250,63 @@ $role = $_SESSION['role'] ?? 'Staff';
             });
         });
 
-        // ====================================================
-        // Handle Edit & Deactivate
-        // ====================================================
+        // ── Edit / Deactivate / Reactivate button wiring ─────
         document.querySelectorAll('.edit-owner-btn').forEach(button => {
             button.addEventListener('click', function() {
-                const ownerId = this.getAttribute('data-owner-id');
-                loadOwnerData(ownerId);
+                loadOwnerData(this.getAttribute('data-owner-id'));
             });
         });
 
         document.querySelectorAll('.delete-owner-btn').forEach(button => {
             button.addEventListener('click', function() {
                 const ownerId = this.getAttribute('data-owner-id');
-                
-                if (confirm('Are you sure you want to deactivate this owner and all their pet profiles? This will archive their records.')) {
-                    const formData = new URLSearchParams();
-                    formData.append('action', 'delete_owner');
-                    formData.append('owner_id', ownerId);
-
-                    fetch('owner.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: formData.toString()
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message);
-                            location.reload();
-                        } else {
-                            alert(data.message);
-                        }
-                    })
-                    .catch(error => {
-                        alert('An error occurred during deactivation. Please try again.');
-                        console.error(error);
-                    });
-                }
+                if (!confirm('Are you sure you want to deactivate this owner and all their pet profiles? This will archive their records.')) return;
+                const fd = new FormData();
+                fd.append('action', 'delete_owner');
+                fd.append('owner_id', ownerId);
+                fetch('owner.php', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => { alert(data.message); if (data.success) location.reload(); })
+                .catch(() => alert('An error occurred during deactivation. Please try again.'));
             });
         });
 
-        // ── Reactivate owner buttons ──
         document.querySelectorAll('.reactivate-owner-btn').forEach(button => {
             button.addEventListener('click', function() {
                 const ownerId = this.getAttribute('data-owner-id');
-
-                if (confirm('Reactivate this owner and all their pet profiles?')) {
-                    const formData = new URLSearchParams();
-                    formData.append('action', 'reactivate_owner');
-                    formData.append('owner_id', ownerId);
-
-                    fetch('owner.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: formData.toString()
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        alert(data.message);
-                        if (data.success) location.reload();
-                    })
-                    .catch(error => {
-                        alert('An error occurred. Please try again.');
-                        console.error(error);
-                    });
-                }
+                if (!confirm('Reactivate this owner and all their pet profiles?')) return;
+                const fd = new FormData();
+                fd.append('action', 'reactivate_owner');
+                fd.append('owner_id', ownerId);
+                fetch('owner.php', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => { alert(data.message); if (data.success) location.reload(); })
+                .catch(() => alert('An error occurred. Please try again.'));
             });
         });
 
-        // ── Pet select change → refresh documents ──
+        // ── Pet select change → refresh fields + documents ───
         ownerSelect.addEventListener('change', function() {
             const selectedPet = ownerPets.find(p => String(p.PET_ID) === this.value);
             if (selectedPet) {
                 fillPetFields(selectedPet);
+                // Sync hidden pet_id field with the newly selected pet
+                document.getElementById('modalPetId').value = selectedPet.PET_ID;
                 renderDocuments(allDocuments, selectedPet.PET_ID);
             }
         });
 
+        // ── EDIT: submit via FormData (preserves new file upload) ──
         document.getElementById('saveOwnerPetBtn').addEventListener('click', function() {
             const form = document.getElementById('editOwnerForm');
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
+            if (!form.checkValidity()) { form.reportValidity(); return; }
 
-            const formData = new URLSearchParams(new FormData(form));
+            // FIX: FormData, not URLSearchParams — same reason as create
+            const formData = new FormData(form);
             formData.append('action', 'update_owner_pet');
 
-            fetch('owner.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: formData.toString()
-            })
-            .then(response => response.json())
+            fetch('owner.php', { method: 'POST', body: formData })
+            .then(r => r.json())
             .then(data => {
                 if (data.success) {
                     showAlert('modalAlert', 'success', data.message);
@@ -1574,39 +1322,35 @@ $role = $_SESSION['role'] ?? 'Staff';
         });
 
         function loadOwnerData(ownerId) {
-            // Reset document section while loading
-            document.getElementById('editDocumentsList').innerHTML =
-                '<div class="doc-loading">Loading documents&hellip;</div>';
+            document.getElementById('editDocumentsList').innerHTML = '<div class="doc-loading">Loading documents&hellip;</div>';
 
+            // get_owner_data doesn't upload files — URLSearchParams is fine here
             fetch('owner.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: 'action=get_owner_data&owner_id=' + encodeURIComponent(ownerId)
             })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                if (!data.success) {
-                    showAlert('modalAlert', 'error', data.message);
-                    return;
-                }
+                if (!data.success) { showAlert('modalAlert', 'error', data.message); return; }
 
                 document.getElementById('modalAlert').style.display = 'none';
                 const owner = data.data.owner;
-                ownerPets = data.data.pets || [];
+                ownerPets    = data.data.pets      || [];
                 allDocuments = data.data.documents || [];
 
-                document.getElementById('modalOwnerId').value = owner.OWNER_ID;
-                document.getElementById('modalOwnerCode').value = 'OWN-' + String(owner.OWNER_ID).padStart(4, '0');
-                document.getElementById('modalFirstName').value = owner.FIRST_NAME;
-                document.getElementById('modalLastName').value = owner.LAST_NAME;
+                document.getElementById('modalOwnerId').value       = owner.OWNER_ID;
+                document.getElementById('modalOwnerCode').value     = 'OWN-' + String(owner.OWNER_ID).padStart(4, '0');
+                document.getElementById('modalFirstName').value     = owner.FIRST_NAME;
+                document.getElementById('modalLastName').value      = owner.LAST_NAME;
                 document.getElementById('modalContactNumber').value = owner.CONTACT_NUMBER;
 
                 ownerSelect.innerHTML = '';
-                ownerPets.forEach((pet) => {
-                    const option = document.createElement('option');
-                    option.value = pet.PET_ID;
-                    option.textContent = pet.PET_NAME;
-                    ownerSelect.appendChild(option);
+                ownerPets.forEach(pet => {
+                    const opt = document.createElement('option');
+                    opt.value = pet.PET_ID;
+                    opt.textContent = pet.PET_NAME;
+                    ownerSelect.appendChild(opt);
                 });
 
                 if (ownerPets.length > 0) {
@@ -1615,14 +1359,11 @@ $role = $_SESSION['role'] ?? 'Staff';
                     renderDocuments(allDocuments, ownerPets[0].PET_ID);
                 } else {
                     document.getElementById('modalPetId').value = '';
-                    document.getElementById('modalPetName').value = '';
-                    document.getElementById('modalPetCategory').value = '';
-                    document.getElementById('modalPetWeight').value = '';
+                    ['modalPetName','modalPetCategory','modalPetWeight','modalFeedingTime','modalPortion'].forEach(id => {
+                        document.getElementById(id).value = '';
+                    });
                     document.getElementById('modalPetSex').value = 'Male';
-                    document.getElementById('modalFeedingTime').value = '';
-                    document.getElementById('modalPortion').value = '';
-                    document.getElementById('editDocumentsList').innerHTML =
-                        '<div class="doc-empty">No pets registered for this owner.</div>';
+                    document.getElementById('editDocumentsList').innerHTML = '<div class="doc-empty">No pets registered for this owner.</div>';
                 }
             })
             .catch(error => {
@@ -1632,13 +1373,13 @@ $role = $_SESSION['role'] ?? 'Staff';
         }
 
         function fillPetFields(pet) {
-            document.getElementById('modalPetId').value = pet.PET_ID;
-            document.getElementById('modalPetName').value = pet.PET_NAME;
+            document.getElementById('modalPetId').value       = pet.PET_ID;
+            document.getElementById('modalPetName').value     = pet.PET_NAME;
             document.getElementById('modalPetCategory').value = pet.CATEGORY_ID;
-            document.getElementById('modalPetWeight').value = pet.WEIGHT;
-            document.getElementById('modalPetSex').value = pet.SEX;
+            document.getElementById('modalPetWeight').value   = pet.WEIGHT;
+            document.getElementById('modalPetSex').value      = pet.SEX;
             document.getElementById('modalFeedingTime').value = pet.FEEDING_TIME;
-            document.getElementById('modalPortion').value = pet.FEEDING_PORTION;
+            document.getElementById('modalPortion').value     = pet.FEEDING_PORTION;
         }
     });
 </script>
