@@ -327,7 +327,7 @@ $role = $_SESSION['role'] ?? 'Staff';
 <aside class="sidebar">
     <div class="sidebar-brand">
         <div class="sidebar-logo">
-            <img src="../img/radog_logo.png" alt="Radog's Kennel">
+            <img src="../img/radog_logocutie.png" alt="Radog's Kennel">
         </div>
         <div>
             <div class="sidebar-wordmark-top">Radog's Kennel</div>
@@ -379,10 +379,10 @@ $role = $_SESSION['role'] ?? 'Staff';
             Pets
         </a>
 
-        <a href="checkout.php" class="nav-link">
+        <!-- <a href="checkout.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
             Checkout / Payments
-        </a>
+        </a> -->
 
         <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
         <a href="user_management.php" class="nav-link">
@@ -405,7 +405,7 @@ $role = $_SESSION['role'] ?? 'Staff';
 ════════════════════════════════════════════════════════════ -->
 <main class="main-content">
 
-    <a href="calendar.php" class="back-link">
+    <a href="calendar-unified.php" class="back-link">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         Back to Calendar
     </a>
