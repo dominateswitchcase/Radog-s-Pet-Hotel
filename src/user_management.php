@@ -52,6 +52,23 @@ function getNextEmployeeId(PDO $pdo) {
     return max($nextId, 13);
 }
 
+/**
+ * Validates if the given weight range overlaps with an existing tier.
+ */
+function isWeightRangeOverlapping(PDO $pdo, $newMin, $newMax, $excludeTierId = null) {
+    $sql = "SELECT COUNT(*) FROM TIER WHERE (:newMin < WEIGHT_MAX AND :newMax > WEIGHT_MIN)";
+    $params = ['newMin' => $newMin, 'newMax' => $newMax];
+    
+    if ($excludeTierId !== null) {
+        $sql .= " AND TIER_ID != :excludeId";
+        $params['excludeId'] = $excludeTierId;
+    }
+    
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
 $supportsStatus = [
     'TIER'         => columnExists($pdo, 'TIER', 'STATUS'),
     'PET_CATEGORY' => columnExists($pdo, 'PET_CATEGORY', 'STATUS'),
@@ -86,11 +103,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['accommodation'] = 'Please provide an accommodation type and select a tier.';
             } else {
                 $newId  = getNextId($pdo, 'ACCOMMODATION', 'ACCOMMODATION_ID');
-                // FIX: Use positional parameters instead of named params for Oracle PDO OCI reliability
                 $insert = $pdo->prepare(
-                    'INSERT INTO ACCOMMODATION (ACCOMMODATION_ID, UNIT_NAME, ACCOMMODATION_TYPE, OCCUPANCY_STATUS, TIER_ID) VALUES (?, ?, ?, ?, ?)'
+                    'INSERT INTO ACCOMMODATION (ACCOMMODATION_ID, UNIT_NAME, ACCOMMODATION_TYPE, OCCUPANCY_STATUS, TIER_ID) VALUES (:aid, :uname, :atype, :ostat, :tid)'
                 );
-                $insert->execute([$newId, $unitName, $accommodationType, 'Available', $tierId]);
+                $insert->execute([
+                    'aid'   => $newId,
+                    'uname' => $unitName,
+                    'atype' => $accommodationType,
+                    'ostat' => 'Available',
+                    'tid'   => $tierId
+                ]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
@@ -104,9 +126,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['accommodation'] = 'Please complete the accommodation update form correctly.';
             } else {
                 $update = $pdo->prepare(
-                    'UPDATE ACCOMMODATION SET ACCOMMODATION_TYPE = ?, TIER_ID = ?, OCCUPANCY_STATUS = ? WHERE ACCOMMODATION_ID = ?'
+                    'UPDATE ACCOMMODATION SET ACCOMMODATION_TYPE = :atype, TIER_ID = :tid, OCCUPANCY_STATUS = :ostat WHERE ACCOMMODATION_ID = :aid'
                 );
-                $update->execute([$accommodationType, $tierId, $occupancyStatus, $accId]);
+                $update->execute([
+                    'atype' => $accommodationType,
+                    'tid'   => $tierId,
+                    'ostat' => $occupancyStatus,
+                    'aid'   => $accId
+                ]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
@@ -115,52 +142,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$accId) {
                 $formErrors['accommodation'] = 'Unable to deactivate accommodation record.';
             } else {
-                $update = $pdo->prepare("UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = 'Under Maintenance' WHERE ACCOMMODATION_ID = ?");
-                $update->execute([$accId]);
+                $update = $pdo->prepare("UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = 'Under Maintenance' WHERE ACCOMMODATION_ID = :aid");
+                $update->execute(['aid' => $accId]);
                 header('Location: user_management.php?tab=accommodation&success=1');
                 exit();
             }
 
         /* ── TIER ──────────────────────────────────────────── */
         } elseif ($action === 'add_tier') {
-            $tierName    = trim($_POST['tier_name'] ?? '');
+            // Capitalize first letter to align with typical strict check constraints (e.g. Small, Medium, Large)
+            $tierName    = ucfirst(strtolower(trim($_POST['tier_name'] ?? '')));
             $description = trim($_POST['tier_description'] ?? '');
             $weightMin   = filter_var($_POST['weight_min'] ?? '', FILTER_VALIDATE_FLOAT);
             $weightMax   = filter_var($_POST['weight_max'] ?? '', FILTER_VALIDATE_FLOAT);
             $dailyRate   = filter_var($_POST['daily_rate'] ?? '', FILTER_VALIDATE_FLOAT);
+
             if ($tierName === '' || $weightMin === false || $weightMax === false || $dailyRate === false || $weightMax <= $weightMin) {
                 $formErrors['tier'] = 'Please complete the tier form and ensure Weight Max is greater than Weight Min.';
+            } elseif (isWeightRangeOverlapping($pdo, $weightMin, $weightMax)) {
+                $formErrors['tier'] = 'Weight range overlap detected. The specified range conflicts with an existing tier.';
             } else {
                 $newId = getNextId($pdo, 'TIER', 'TIER_ID');
-                // FIX: Use positional ? params — Oracle PDO OCI does not support named bind params with colons reliably
+                
                 if ($supportsStatus['TIER']) {
-                    $insert = $pdo->prepare("INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                    $insert->execute([$newId, $tierName, $description, $weightMin, $weightMax, $dailyRate, 'Active']);
+                    $insert = $pdo->prepare("INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE, STATUS) VALUES (:tid, :tname, :tdesc, :wmin, :wmax, :drate, :tstat)");
+                    $insert->execute([
+                        'tid'   => $newId,
+                        'tname' => $tierName,
+                        'tdesc' => $description,
+                        'wmin'  => $weightMin,
+                        'wmax'  => $weightMax,
+                        'drate' => $dailyRate,
+                        'tstat' => 'Active'
+                    ]);
                 } else {
-                    $insert = $pdo->prepare('INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE) VALUES (?, ?, ?, ?, ?, ?)');
-                    $insert->execute([$newId, $tierName, $description, $weightMin, $weightMax, $dailyRate]);
+                    $insert = $pdo->prepare('INSERT INTO TIER (TIER_ID, TIER_NAME, TIER_DESCRIPTION, WEIGHT_MIN, WEIGHT_MAX, DAILY_RATE) VALUES (:tid, :tname, :tdesc, :wmin, :wmax, :drate)');
+                    $insert->execute([
+                        'tid'   => $newId,
+                        'tname' => $tierName,
+                        'tdesc' => $description,
+                        'wmin'  => $weightMin,
+                        'wmax'  => $weightMax,
+                        'drate' => $dailyRate
+                    ]);
                 }
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
             }
         } elseif ($action === 'edit_tier') {
             $tierId       = filter_var($_POST['tier_id'] ?? '', FILTER_VALIDATE_INT);
-            $tierName     = trim($_POST['tier_name'] ?? '');
+            $tierName     = ucfirst(strtolower(trim($_POST['tier_name'] ?? '')));
             $description  = trim($_POST['tier_description'] ?? '');
             $weightMin    = filter_var($_POST['weight_min'] ?? '', FILTER_VALIDATE_FLOAT);
             $weightMax    = filter_var($_POST['weight_max'] ?? '', FILTER_VALIDATE_FLOAT);
             $dailyRate    = filter_var($_POST['daily_rate'] ?? '', FILTER_VALIDATE_FLOAT);
             $recordStatus = trim($_POST['status'] ?? 'Active');
+
             if (!$tierId || $tierName === '' || $weightMin === false || $weightMax === false || $dailyRate === false || $weightMax <= $weightMin) {
                 $formErrors['tier'] = 'Please complete the tier update form and ensure the weight range is valid.';
+            } elseif (isWeightRangeOverlapping($pdo, $weightMin, $weightMax, $tierId)) {
+                $formErrors['tier'] = 'Weight range overlap detected. The specified range conflicts with another existing tier.';
             } else {
                 if ($supportsStatus['TIER']) {
                     $statusValue = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
-                    $update = $pdo->prepare('UPDATE TIER SET TIER_NAME = ?, TIER_DESCRIPTION = ?, WEIGHT_MIN = ?, WEIGHT_MAX = ?, DAILY_RATE = ?, STATUS = ? WHERE TIER_ID = ?');
-                    $update->execute([$tierName, $description, $weightMin, $weightMax, $dailyRate, $statusValue, $tierId]);
+                    $update = $pdo->prepare('UPDATE TIER SET TIER_NAME = :tname, TIER_DESCRIPTION = :tdesc, WEIGHT_MIN = :wmin, WEIGHT_MAX = :wmax, DAILY_RATE = :drate, STATUS = :tstat WHERE TIER_ID = :tid');
+                    $update->execute([
+                        'tname' => $tierName,
+                        'tdesc' => $description,
+                        'wmin'  => $weightMin,
+                        'wmax'  => $weightMax,
+                        'drate' => $dailyRate,
+                        'tstat' => $statusValue,
+                        'tid'   => $tierId
+                    ]);
                 } else {
-                    $update = $pdo->prepare('UPDATE TIER SET TIER_NAME = ?, TIER_DESCRIPTION = ?, WEIGHT_MIN = ?, WEIGHT_MAX = ?, DAILY_RATE = ? WHERE TIER_ID = ?');
-                    $update->execute([$tierName, $description, $weightMin, $weightMax, $dailyRate, $tierId]);
+                    $update = $pdo->prepare('UPDATE TIER SET TIER_NAME = :tname, TIER_DESCRIPTION = :tdesc, WEIGHT_MIN = :wmin, WEIGHT_MAX = :wmax, DAILY_RATE = :drate WHERE TIER_ID = :tid');
+                    $update->execute([
+                        'tname' => $tierName,
+                        'tdesc' => $description,
+                        'wmin'  => $weightMin,
+                        'wmax'  => $weightMax,
+                        'drate' => $dailyRate,
+                        'tid'   => $tierId
+                    ]);
                 }
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
@@ -172,8 +236,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['tier'] = 'Unable to update tier status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update = $pdo->prepare('UPDATE TIER SET STATUS = ? WHERE TIER_ID = ?');
-                $update->execute([$statusValue, $tierId]);
+                $update = $pdo->prepare('UPDATE TIER SET STATUS = :tstat WHERE TIER_ID = :tid');
+                $update->execute(['tstat' => $statusValue, 'tid' => $tierId]);
                 header('Location: user_management.php?tab=tier&success=1');
                 exit();
             }
@@ -187,11 +251,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 $newId = getNextId($pdo, 'PET_CATEGORY', 'CATEGORY_ID');
                 if ($supportsStatus['PET_CATEGORY']) {
-                    $insert = $pdo->prepare("INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS) VALUES (?, ?, ?, ?)");
-                    $insert->execute([$newId, $categoryName, $speciesNotes, 'Active']);
+                    $insert = $pdo->prepare("INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES, STATUS) VALUES (:cid, :cname, :cnotes, :cstat)");
+                    $insert->execute(['cid' => $newId, 'cname' => $categoryName, 'cnotes' => $speciesNotes, 'cstat' => 'Active']);
                 } else {
-                    $insert = $pdo->prepare('INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES) VALUES (?, ?, ?)');
-                    $insert->execute([$newId, $categoryName, $speciesNotes]);
+                    $insert = $pdo->prepare('INSERT INTO PET_CATEGORY (CATEGORY_ID, CATEGORY_NAME, SPECIES_NOTES) VALUES (:cid, :cname, :cnotes)');
+                    $insert->execute(['cid' => $newId, 'cname' => $categoryName, 'cnotes' => $speciesNotes]);
                 }
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
@@ -206,11 +270,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 if ($supportsStatus['PET_CATEGORY']) {
                     $statusValue = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
-                    $update = $pdo->prepare('UPDATE PET_CATEGORY SET CATEGORY_NAME = ?, SPECIES_NOTES = ?, STATUS = ? WHERE CATEGORY_ID = ?');
-                    $update->execute([$categoryName, $speciesNotes, $statusValue, $categoryId]);
+                    $update = $pdo->prepare('UPDATE PET_CATEGORY SET CATEGORY_NAME = :cname, SPECIES_NOTES = :cnotes, STATUS = :cstat WHERE CATEGORY_ID = :cid');
+                    $update->execute(['cname' => $categoryName, 'cnotes' => $speciesNotes, 'cstat' => $statusValue, 'cid' => $categoryId]);
                 } else {
-                    $update = $pdo->prepare('UPDATE PET_CATEGORY SET CATEGORY_NAME = ?, SPECIES_NOTES = ? WHERE CATEGORY_ID = ?');
-                    $update->execute([$categoryName, $speciesNotes, $categoryId]);
+                    $update = $pdo->prepare('UPDATE PET_CATEGORY SET CATEGORY_NAME = :cname, SPECIES_NOTES = :cnotes WHERE CATEGORY_ID = :cid');
+                    $update->execute(['cname' => $categoryName, 'cnotes' => $speciesNotes, 'cid' => $categoryId]);
                 }
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
@@ -222,8 +286,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['pet_category'] = 'Unable to update category status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update = $pdo->prepare('UPDATE PET_CATEGORY SET STATUS = ? WHERE CATEGORY_ID = ?');
-                $update->execute([$statusValue, $categoryId]);
+                $update = $pdo->prepare('UPDATE PET_CATEGORY SET STATUS = :cstat WHERE CATEGORY_ID = :cid');
+                $update->execute(['cstat' => $statusValue, 'cid' => $categoryId]);
                 header('Location: user_management.php?tab=pet_category&success=1');
                 exit();
             }
@@ -237,13 +301,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['service'] = 'Please complete the service form and provide a valid price.';
             } else {
                 $newId = getNextId($pdo, 'SERVICE', 'SERVICE_ID');
-                // FIX: Positional params — avoids ORA-01745 invalid host/bind variable name
                 if ($supportsStatus['SERVICE']) {
-                    $insert = $pdo->prepare("INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS) VALUES (?, ?, ?, ?, ?)");
-                    $insert->execute([$newId, $serviceName, $serviceDescription, $price, 'Active']);
+                    $insert = $pdo->prepare("INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE, STATUS) VALUES (:sid, :sname, :sdesc, :sprice, :sstat)");
+                    $insert->execute(['sid' => $newId, 'sname' => $serviceName, 'sdesc' => $serviceDescription, 'sprice' => $price, 'sstat' => 'Active']);
                 } else {
-                    $insert = $pdo->prepare('INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE) VALUES (?, ?, ?, ?)');
-                    $insert->execute([$newId, $serviceName, $serviceDescription, $price]);
+                    $insert = $pdo->prepare('INSERT INTO SERVICE (SERVICE_ID, SERVICE_NAME, SERVICE_DESCRIPTION, PRICE) VALUES (:sid, :sname, :sdesc, :sprice)');
+                    $insert->execute(['sid' => $newId, 'sname' => $serviceName, 'sdesc' => $serviceDescription, 'sprice' => $price]);
                 }
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
@@ -259,11 +322,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 if ($supportsStatus['SERVICE']) {
                     $statusValue = in_array($recordStatus, ['Active', 'Inactive'], true) ? $recordStatus : 'Active';
-                    $update = $pdo->prepare('UPDATE SERVICE SET SERVICE_NAME = ?, SERVICE_DESCRIPTION = ?, PRICE = ?, STATUS = ? WHERE SERVICE_ID = ?');
-                    $update->execute([$serviceName, $serviceDescription, $price, $statusValue, $serviceId]);
+                    $update = $pdo->prepare('UPDATE SERVICE SET SERVICE_NAME = :sname, SERVICE_DESCRIPTION = :sdesc, PRICE = :sprice, STATUS = :sstat WHERE SERVICE_ID = :sid');
+                    $update->execute(['sname' => $serviceName, 'sdesc' => $serviceDescription, 'sprice' => $price, 'sstat' => $statusValue, 'sid' => $serviceId]);
                 } else {
-                    $update = $pdo->prepare('UPDATE SERVICE SET SERVICE_NAME = ?, SERVICE_DESCRIPTION = ?, PRICE = ? WHERE SERVICE_ID = ?');
-                    $update->execute([$serviceName, $serviceDescription, $price, $serviceId]);
+                    $update = $pdo->prepare('UPDATE SERVICE SET SERVICE_NAME = :sname, SERVICE_DESCRIPTION = :sdesc, PRICE = :sprice WHERE SERVICE_ID = :sid');
+                    $update->execute(['sname' => $serviceName, 'sdesc' => $serviceDescription, 'sprice' => $price, 'sid' => $serviceId]);
                 }
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
@@ -275,15 +338,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['service'] = 'Unable to update service status because the database schema does not support it.';
             } else {
                 $statusValue = in_array($newStatus, ['Active', 'Inactive'], true) ? $newStatus : 'Inactive';
-                $update = $pdo->prepare('UPDATE SERVICE SET STATUS = ? WHERE SERVICE_ID = ?');
-                $update->execute([$statusValue, $serviceId]);
+                $update = $pdo->prepare('UPDATE SERVICE SET STATUS = :sstat WHERE SERVICE_ID = :sid');
+                $update->execute(['sstat' => $statusValue, 'sid' => $serviceId]);
                 header('Location: user_management.php?tab=service&success=1');
                 exit();
             }
 
         /* ── EMPLOYEE / USER ACCOUNT ───────────────────────── */
         } elseif ($action === 'add_employee') {
-            // FIX: Employee ID is auto-generated — NOT user-defined. Full Name field removed.
             $username  = trim($_POST['username'] ?? '');
             $password  = trim($_POST['password'] ?? '');
             $userGroup = filter_var($_POST['user_group_id'] ?? '', FILTER_VALIDATE_INT);
@@ -293,26 +355,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['employee'] = 'Please complete all required fields.';
             } else {
                 // Check for duplicate username
-                $stmt = $pdo->prepare("SELECT COUNT(*) FROM USER_ACCOUNT WHERE Username = ?");
-                $stmt->execute([$username]);
+                $stmt = $pdo->prepare("SELECT COUNT(*) FROM USER_ACCOUNT WHERE Username = :uname");
+                $stmt->execute(['uname' => $username]);
                 if ($stmt->fetchColumn() > 0) {
                     $formErrors['employee'] = 'Username already exists. Please choose a different one.';
                 } else {
                     try {
                         $pdo->beginTransaction();
 
-                        // Auto-generate Employee ID starting at 13
                         $empId = getNextEmployeeId($pdo);
                         $hash  = password_hash($password, PASSWORD_BCRYPT);
 
-                        // Insert into EMPLOYEE — username stored as Employee_Username (no full name)
-                        $insEmp = $pdo->prepare("INSERT INTO EMPLOYEE (Employee_ID, Employee_Username, Password_Hash) VALUES (?, ?, ?)");
-                        $insEmp->execute([$empId, $username, $hash]);
+                        $insEmp = $pdo->prepare("INSERT INTO EMPLOYEE (Employee_ID, Employee_Username, Password_Hash) VALUES (:eid, :euname, :ehash)");
+                        $insEmp->execute(['eid' => $empId, 'euname' => $username, 'ehash' => $hash]);
 
                         $accId = getNextId($pdo, 'USER_ACCOUNT', 'ACCOUNT_ID');
 
-                        $insAcc = $pdo->prepare("INSERT INTO USER_ACCOUNT (Account_ID, Username, Account_Status, Password_Hash, Employee_ID, User_Group_ID) VALUES (?, ?, ?, ?, ?, ?)");
-                        $insAcc->execute([$accId, $username, $status, $hash, $empId, $userGroup]);
+                        $insAcc = $pdo->prepare("INSERT INTO USER_ACCOUNT (Account_ID, Username, Account_Status, Password_Hash, Employee_ID, User_Group_ID) VALUES (:aid, :uname, :astat, :ahash, :aeid, :agid)");
+                        $insAcc->execute([
+                            'aid'   => $accId, 
+                            'uname' => $username, 
+                            'astat' => $status, 
+                            'ahash' => $hash, 
+                            'aeid'  => $empId, 
+                            'agid'  => $userGroup
+                        ]);
 
                         $pdo->commit();
                         header('Location: user_management.php?tab=employee&success=1');
@@ -331,8 +398,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$accId || !$userGroup || !in_array($status, ['Active', 'Inactive'])) {
                 $formErrors['employee'] = 'Invalid form data provided for account update.';
             } else {
-                $update = $pdo->prepare("UPDATE USER_ACCOUNT SET User_Group_ID = ?, Account_Status = ? WHERE Account_ID = ?");
-                $update->execute([$userGroup, $status, $accId]);
+                $update = $pdo->prepare("UPDATE USER_ACCOUNT SET User_Group_ID = :ugid, Account_Status = :astat WHERE Account_ID = :aid");
+                $update->execute(['ugid' => $userGroup, 'astat' => $status, 'aid' => $accId]);
                 header('Location: user_management.php?tab=employee&success=1');
                 exit();
             }
@@ -345,14 +412,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['account'] = 'Username cannot be blank.';
                 $redirectTab = 'account';
             } else {
-                $stmt = $pdo->prepare('SELECT COUNT(*) FROM USER_ACCOUNT WHERE USERNAME = ? AND ACCOUNT_ID <> ?');
-                $stmt->execute([$username, $accountId]);
+                $stmt = $pdo->prepare('SELECT COUNT(*) FROM USER_ACCOUNT WHERE USERNAME = :uname AND ACCOUNT_ID <> :aid');
+                $stmt->execute(['uname' => $username, 'aid' => $accountId]);
                 if ((int) $stmt->fetchColumn() > 0) {
                     $formErrors['account'] = 'That username is already taken.';
                     $redirectTab = 'account';
                 } else {
-                    $update = $pdo->prepare('UPDATE USER_ACCOUNT SET USERNAME = ? WHERE ACCOUNT_ID = ?');
-                    $update->execute([$username, $accountId]);
+                    $update = $pdo->prepare('UPDATE USER_ACCOUNT SET USERNAME = :uname WHERE ACCOUNT_ID = :aid');
+                    $update->execute(['uname' => $username, 'aid' => $accountId]);
                     header('Location: user_management.php?tab=account&success=1');
                     exit();
                 }
@@ -372,16 +439,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $formErrors['password'] = 'New password must be at least 8 characters.';
                 $redirectTab = 'account';
             } else {
-                $stmt = $pdo->prepare('SELECT PASSWORD_HASH FROM USER_ACCOUNT WHERE ACCOUNT_ID = ?');
-                $stmt->execute([$accountId]);
+                $stmt = $pdo->prepare('SELECT PASSWORD_HASH FROM USER_ACCOUNT WHERE ACCOUNT_ID = :aid');
+                $stmt->execute(['aid' => $accountId]);
                 $hash = $stmt->fetchColumn();
                 if (!$hash || !password_verify($current, $hash)) {
                     $formErrors['password'] = 'Current password is incorrect.';
                     $redirectTab = 'account';
                 } else {
                     $newHash = password_hash($newPass, PASSWORD_BCRYPT);
-                    $update  = $pdo->prepare('UPDATE USER_ACCOUNT SET PASSWORD_HASH = ? WHERE ACCOUNT_ID = ?');
-                    $update->execute([$newHash, $accountId]);
+                    $update  = $pdo->prepare('UPDATE USER_ACCOUNT SET PASSWORD_HASH = :phash WHERE ACCOUNT_ID = :aid');
+                    $update->execute(['phash' => $newHash, 'aid' => $accountId]);
                     header('Location: user_management.php?tab=account&success=1');
                     exit();
                 }
@@ -389,6 +456,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     } catch (PDOException $e) {
         $message = 'Database error: ' . $e->getMessage();
+        // Fallback catch for the specific constraint if something slips by our formatting
+        if (strpos($e->getMessage(), 'CHK_TIER_NAME') !== false) {
+            $message = 'Invalid Tier Name. The database only allows specific predefined values (e.g., Small, Medium, Large, Giant).';
+        }
+
         if (in_array($action, ['add_accommodation', 'edit_accommodation', 'deactivate_accommodation'], true)) {
             $formErrors['accommodation'] = $message;
         } elseif (in_array($action, ['add_tier', 'edit_tier', 'deactivate_tier'], true)) {
@@ -442,9 +514,9 @@ while ($row = $countsStmt->fetch(PDO::FETCH_ASSOC)) {
 }
 
 $currentUserStmt = $pdo->prepare(
-    'SELECT UA.ACCOUNT_ID, UA.USERNAME, UA.ACCOUNT_STATUS, E.EMPLOYEE_USERNAME, UG.GROUP_NAME FROM USER_ACCOUNT UA JOIN EMPLOYEE E ON UA.EMPLOYEE_ID = E.EMPLOYEE_ID JOIN USER_GROUP UG ON UA.USER_GROUP_ID = UG.USER_GROUP_ID WHERE UA.ACCOUNT_ID = ?'
+    'SELECT UA.ACCOUNT_ID, UA.USERNAME, UA.ACCOUNT_STATUS, E.EMPLOYEE_USERNAME, UG.GROUP_NAME FROM USER_ACCOUNT UA JOIN EMPLOYEE E ON UA.EMPLOYEE_ID = E.EMPLOYEE_ID JOIN USER_GROUP UG ON UA.USER_GROUP_ID = UG.USER_GROUP_ID WHERE UA.ACCOUNT_ID = :aid'
 );
-$currentUserStmt->execute([$_SESSION['account_id']]);
+$currentUserStmt->execute(['aid' => $_SESSION['account_id']]);
 $currentUser = $currentUserStmt->fetch(PDO::FETCH_ASSOC) ?: ['USERNAME' => '', 'ACCOUNT_STATUS' => '', 'EMPLOYEE_USERNAME' => '', 'GROUP_NAME' => ''];
 
 $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';

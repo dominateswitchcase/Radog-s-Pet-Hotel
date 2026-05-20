@@ -11,41 +11,6 @@ $role = $_SESSION['role'];
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $category_filter = isset($_GET['category']) ? $_GET['category'] : 'all';
 
-// Handle Edit POST (modal form submission)
-$edit_success = '';
-$edit_error   = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_pet_id'])) {
-    $edit_id    = (int)$_POST['edit_pet_id'];
-    $pet_name   = trim($_POST['pet_name'] ?? '');
-    $sex        = trim($_POST['sex'] ?? '');
-    $weight     = trim($_POST['weight'] ?? '');
-    $feeding_time    = trim($_POST['feeding_time'] ?? '');
-    $feeding_portion = trim($_POST['feeding_portion'] ?? '');
-    $behavioral_notes = trim($_POST['behavioral_notes'] ?? '');
-
-    if ($pet_name === '') {
-        $edit_error = 'Pet name is required.';
-    } else {
-        try {
-            $upd = $pdo->prepare("UPDATE PET SET PET_NAME = :name, SEX = :sex, WEIGHT = :weight,
-                FEEDING_TIME = :ft, FEEDING_PORTION = :fp, BEHAVIORAL_NOTES = :bn
-                WHERE PET_ID = :id");
-            $upd->execute([
-                'name'   => $pet_name,
-                'sex'    => $sex ?: null,
-                'weight' => $weight !== '' ? (float)$weight : null,
-                'ft'     => $feeding_time ?: null,
-                'fp'     => $feeding_portion ?: null,
-                'bn'     => $behavioral_notes ?: null,
-                'id'     => $edit_id,
-            ]);
-            $edit_success = 'Pet profile updated successfully.';
-        } catch (PDOException $e) {
-            $edit_error = 'Update failed: ' . $e->getMessage();
-        }
-    }
-}
-
 // Fetch all categories dynamically for the dropdown
 $cat_stmt = $pdo->query("SELECT CATEGORY_ID, CATEGORY_NAME FROM PET_CATEGORY ORDER BY CATEGORY_ID ASC");
 $all_categories = $cat_stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -697,19 +662,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <h1 class="page-title">Pet Profiles</h1>
     <p class="page-subtitle">Centralized pet registry and historical data</p>
 
-    <?php if ($edit_success): ?>
-    <div class="alert alert-success">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        <?php echo htmlspecialchars($edit_success); ?>
-    </div>
-    <?php endif; ?>
-    <?php if ($edit_error): ?>
-    <div class="alert alert-error">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <?php echo htmlspecialchars($edit_error); ?>
-    </div>
-    <?php endif; ?>
-
     <form action="pets.php" method="GET">
         <div class="filter-bar">
             <div class="search-wrap">
@@ -783,31 +735,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 Details
                             </a>
-
-                            <?php if (isAdmin()): ?>
-                                <a href="pet_delete.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Delete this pet profile?');">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                                    Delete
-                                </a>
-                            <?php else: ?>
-                                <button type="button" class="btn btn-sm btn-ghost"
-                                    onclick="openEditModal(
-                                        <?php echo $row['PET_ID']; ?>,
-                                        <?php echo json_encode($row['PET_NAME']); ?>,
-                                        <?php echo json_encode($row['SEX'] ?? ''); ?>,
-                                        <?php echo json_encode($row['WEIGHT'] ?? ''); ?>,
-                                        <?php echo json_encode($row['FEEDING_TIME'] ?? ''); ?>,
-                                        <?php echo json_encode($row['FEEDING_PORTION'] ?? ''); ?>,
-                                        <?php echo json_encode($row['BEHAVIORAL_NOTES'] ?? ''); ?>
-                                    )">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                    Edit
-                                </button>
-                                <a href="pet_log_vaccine.php?id=<?php echo $row['PET_ID']; ?>" class="btn btn-sm btn-ghost">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
-                                    Log Vaccine
-                                </a>
-                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>
@@ -819,112 +746,6 @@ $pets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 </main>
 
-<div class="modal-overlay" id="editPetModal">
-    <div class="modal-box">
-        <div class="modal-head">
-            <span class="modal-title">Edit Pet Profile</span>
-            <button class="modal-close" onclick="closeEditModal()" aria-label="Close">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-        </div>
-
-        <form method="POST" action="pets.php<?php echo ($search || $category_filter !== 'all') ? '?' . http_build_query(['search' => $search, 'category' => $category_filter]) : ''; ?>">
-            <div class="modal-body">
-                <input type="hidden" name="edit_pet_id" id="modal_pet_id">
-
-                <div class="field-row">
-                    <div class="field-group">
-                        <label class="field-label" for="modal_pet_name">Pet Name <span style="color:var(--orange)">*</span></label>
-                        <input type="text" name="pet_name" id="modal_pet_name" placeholder="e.g. Buddy" required>
-                    </div>
-                    <div class="field-group">
-                        <label class="field-label" for="modal_sex">Sex</label>
-                        <select name="sex" id="modal_sex">
-                            <option value="">— Select —</option>
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="field-row">
-                    <div class="field-group">
-                        <label class="field-label" for="modal_weight">Weight (kg)</label>
-                        <input type="number" name="weight" id="modal_weight" step="0.01" min="0.01" placeholder="e.g. 12.50">
-                    </div>
-                    <div class="field-group">
-                        <label class="field-label" for="modal_feeding_time">Feeding Time</label>
-                        <input type="text" name="feeding_time" id="modal_feeding_time" placeholder="e.g. BID">
-                    </div>
-                </div>
-
-                <div class="field-group">
-                    <label class="field-label" for="modal_feeding_portion">Feeding Portion</label>
-                    <input type="text" name="feeding_portion" id="modal_feeding_portion" placeholder="e.g. 2 cups morning, 1 cup evening">
-                </div>
-
-                <div class="field-group">
-                    <label class="field-label" for="modal_behavioral_notes">Behavioral Notes</label>
-                    <textarea name="behavioral_notes" id="modal_behavioral_notes" placeholder="Any important behavioral notes…"></textarea>
-                </div>
-            </div>
-
-            <div class="modal-foot">
-                <button type="button" class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    Save Changes
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<script>
-    // ── Edit Modal ────────────────────────────────────────
-    function openEditModal(id, name, sex, weight, feedingTime, feedingPortion, behavioralNotes) {
-        document.getElementById('modal_pet_id').value          = id;
-        document.getElementById('modal_pet_name').value        = name;
-        document.getElementById('modal_sex').value             = sex;
-        document.getElementById('modal_weight').value          = weight;
-        document.getElementById('modal_feeding_time').value    = feedingTime;
-        document.getElementById('modal_feeding_portion').value = feedingPortion;
-        document.getElementById('modal_behavioral_notes').value = behavioralNotes;
-        document.getElementById('editPetModal').classList.add('open');
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeEditModal() {
-        document.getElementById('editPetModal').classList.remove('open');
-        document.body.style.overflow = '';
-    }
-
-    // Close on overlay click
-    document.getElementById('editPetModal').addEventListener('click', function(e) {
-        if (e.target === this) closeEditModal();
-    });
-
-    // Close on Escape key
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeEditModal();
-    });
-
-    // Re-open modal if there was a validation error on POST
-    <?php if ($edit_error): ?>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Restore form values from POST data so the user can fix and resubmit
-        document.getElementById('modal_pet_id').value           = <?php echo json_encode($_POST['edit_pet_id'] ?? ''); ?>;
-        document.getElementById('modal_pet_name').value         = <?php echo json_encode($_POST['pet_name'] ?? ''); ?>;
-        document.getElementById('modal_sex').value              = <?php echo json_encode($_POST['sex'] ?? ''); ?>;
-        document.getElementById('modal_weight').value           = <?php echo json_encode($_POST['weight'] ?? ''); ?>;
-        document.getElementById('modal_feeding_time').value     = <?php echo json_encode($_POST['feeding_time'] ?? ''); ?>;
-        document.getElementById('modal_feeding_portion').value  = <?php echo json_encode($_POST['feeding_portion'] ?? ''); ?>;
-        document.getElementById('modal_behavioral_notes').value = <?php echo json_encode($_POST['behavioral_notes'] ?? ''); ?>;
-        document.getElementById('editPetModal').classList.add('open');
-        document.body.style.overflow = 'hidden';
-    });
-    <?php endif; ?>
-</script>
 
 </body>
 </html>
