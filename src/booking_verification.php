@@ -16,28 +16,17 @@ if ($booking_id) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Data Validation & Constraints
         $status = in_array($_POST['status'] ?? '', ['Pending', 'Confirmed', 'Cancelled', 'Completed']) ? $_POST['status'] : 'Pending';
-        
-        // Form Verification Checkboxes
-        $reg_form_verified = isset($_POST['reg_form_verified']) ? 'Y' : 'N';
-        $waiver_verified = isset($_POST['waiver_verified']) ? 'Y' : 'N';
-        $vacc_card_verified = isset($_POST['vacc_card_verified']) ? 'Y' : 'N';
 
         try {
             // STRICT ALIGNMENT: Columns must exactly match the Oracle BOOKING Table DDL
             $update_stmt = $pdo->prepare(
                 "UPDATE BOOKING SET 
-                    BOOKING_STATUS = :status,
-                    REG_FORM_VERIFIED = :reg_form,
-                    WAIVER_VERIFIED = :waiver,
-                    VACC_CARD_VERIFIED = :vacc_card
+                    BOOKING_STATUS = :status
                  WHERE BOOKING_ID = :id"
             );
             
             $update_stmt->execute([
                 'status' => $status,
-                'reg_form' => $reg_form_verified,
-                'waiver' => $waiver_verified,
-                'vacc_card' => $vacc_card_verified,
                 'id' => $booking_id
             ]);
 
@@ -190,6 +179,7 @@ $role = $_SESSION['role'] ?? 'Staff';
         .back-link:hover { color: var(--orange); }
         .back-link svg { width: 15px; height: 15px; }
 
+        /* Page header */
         .page-eyebrow {
             font-size: 0.75rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
             color: var(--orange); display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
@@ -200,6 +190,17 @@ $role = $_SESSION['role'] ?? 'Staff';
         }
         .page-title { font-size: 2.4rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
         .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); margin-bottom: 32px; }
+
+        /* Booking ID chip */
+        .booking-chip {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(250,129,18,0.08); border: 1px solid rgba(250,129,18,0.2);
+            border-radius: 99px; padding: 5px 14px;
+            font-family: 'Bebas Neue', sans-serif; font-size: 1rem;
+            color: var(--orange); letter-spacing: 0.1em;
+            margin-bottom: 28px;
+        }
+        .booking-chip svg { width: 14px; height: 14px; }
 
         /* ── ALERT ── */
         .alert {
@@ -217,12 +218,11 @@ $role = $_SESSION['role'] ?? 'Staff';
             gap: 24px;
             align-items: start;
         }
-        .right-col { display: flex; flex-direction: column; gap: 24px; }
 
         /* ── PANELS ── */
         .panel {
             background: var(--white); border: var(--border-soft); border-radius: 20px;
-            padding: 28px; box-shadow: var(--shadow-card);
+            padding: 28px; box-shadow: var(--shadow-card); margin-bottom: 0;
         }
         .panel-header {
             display: flex; align-items: center; gap: 12px;
@@ -245,95 +245,31 @@ $role = $_SESSION['role'] ?? 'Staff';
         }
         .info-value { font-size: 1rem; color: var(--black); font-weight: 500; }
 
-        /* Booking ID chip */
-        .booking-chip {
-            display: inline-flex; align-items: center; gap: 8px;
-            background: rgba(250,129,18,0.08); border: 1px solid rgba(250,129,18,0.2);
-            border-radius: 99px; padding: 5px 14px;
-            font-family: 'Bebas Neue', sans-serif; font-size: 1rem;
-            color: var(--orange); letter-spacing: 0.1em;
-            margin-bottom: 28px;
-        }
-        .booking-chip svg { width: 14px; height: 14px; }
-
-        /* ── COMPLIANCE TOGGLE ROWS ── */
-        .check-row {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 16px 18px; border-radius: 14px;
-            border: 1.5px solid #e2d9ce; background: var(--beige);
-            margin-bottom: 12px; transition: border-color 0.18s, background 0.18s;
-            cursor: pointer;
-        }
-        .check-row:last-child { margin-bottom: 0; }
-        .check-row:hover { border-color: rgba(250,129,18,0.4); background: rgba(250,129,18,0.03); }
-        .check-row.checked { border-color: rgba(34,197,94,0.4); background: #f0fdf4; }
-
-        .check-label-wrap { display: flex; align-items: center; gap: 12px; }
-        .check-icon {
-            width: 32px; height: 32px; border-radius: 9px;
-            background: rgba(250,129,18,0.1); display: flex; align-items: center; justify-content: center;
-            flex-shrink: 0;
-        }
-        .check-icon svg { width: 15px; height: 15px; color: var(--orange); }
-        .check-row.checked .check-icon { background: rgba(34,197,94,0.12); }
-        .check-row.checked .check-icon svg { color: #16a34a; }
-        .check-text { font-size: 0.92rem; font-weight: 500; color: var(--black); }
-
-        /* Custom toggle switch */
-        .toggle-wrap { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
-        .toggle-wrap input[type="checkbox"] {
-            opacity: 0; width: 0; height: 0; position: absolute;
-        }
-        .toggle-track {
-            position: absolute; inset: 0; border-radius: 99px;
-            background: #d1c8be; transition: background 0.2s;
-            cursor: pointer;
-        }
-        .toggle-track::after {
-            content: ''; position: absolute; top: 3px; left: 3px;
-            width: 18px; height: 18px; border-radius: 50%;
-            background: var(--white); transition: transform 0.2s;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-        }
-        .toggle-wrap input:checked + .toggle-track { background: #22c55e; }
-        .toggle-wrap input:checked + .toggle-track::after { transform: translateX(20px); }
-
         /* ── FORM FIELDS ── */
         .field-label {
             display: block; font-size: 0.75rem; font-weight: 600;
             letter-spacing: 0.12em; text-transform: uppercase; color: #4a3f33; margin-bottom: 8px;
         }
         .field-group { margin-bottom: 20px; }
-        select {
+
+        input, select, textarea {
             width: 100%; padding: 13px 16px; border: 1.5px solid #e2d9ce;
             border-radius: 12px; background: var(--beige); color: var(--black);
             font-family: 'DM Sans', sans-serif; font-size: 0.95rem;
             transition: border-color 0.2s, box-shadow 0.2s; appearance: none;
+        }
+        select {
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 14px center;
             padding-right: 40px;
         }
-        select:focus {
+        input:focus, select:focus, textarea:focus {
             border-color: var(--orange); box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
-            outline: none; background-color: var(--white);
+            outline: none; background: var(--white);
         }
-
-        /* Status badge inside select option preview */
-        .status-preview {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 4px 12px; border-radius: 99px; font-size: 0.8rem; font-weight: 600;
-            margin-bottom: 12px;
-        }
-        .status-dot { width: 7px; height: 7px; border-radius: 50%; }
-        .status-pending  { background: #fffbeb; color: #92400e; }
-        .status-pending .status-dot  { background: #f59e0b; }
-        .status-confirmed { background: #f0fdf4; color: #166534; }
-        .status-confirmed .status-dot { background: #22c55e; }
-        .status-cancelled { background: #fef2f2; color: #991b1b; }
-        .status-cancelled .status-dot { background: #ef4444; }
-        .status-completed { background: #eff6ff; color: #1e40af; }
-        .status-completed .status-dot { background: #3b82f6; }
+        input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; background: rgba(34,34,34,0.04); }
+        textarea { resize: vertical; min-height: 90px; }
 
         /* ── BUTTONS ── */
         .btn {
@@ -348,6 +284,25 @@ $role = $_SESSION['role'] ?? 'Staff';
         .btn svg { width: 16px; height: 16px; }
         .btn-primary { background: var(--black); color: var(--white); }
         .btn-primary:hover { background: var(--orange); box-shadow: 0 6px 20px rgba(250,129,18,0.3); }
+        .btn-danger  { background: var(--orange); color: var(--white); }
+        .btn-danger:hover  { background: var(--orange-dk); box-shadow: 0 6px 20px rgba(250,129,18,0.35); }
+        .btn-ghost   { background: transparent; color: var(--black); border: 1.5px solid rgba(34,34,34,0.18); }
+        .btn-ghost:hover   { background: rgba(34,34,34,0.04); border-color: var(--orange); }
+
+        /* Status badges */
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600;
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .status-pending   { background: #fffbeb; color: #92400e; }
+        .status-pending .status-dot   { background: #f59e0b; }
+        .status-confirmed { background: #f0fdf4; color: #166534; }
+        .status-confirmed .status-dot { background: #22c55e; }
+        .status-cancelled { background: #fef2f2; color: #991b1b; }
+        .status-cancelled .status-dot { background: #ef4444; }
+        .status-completed { background: #eff6ff; color: #1e40af; }
+        .status-completed .status-dot { background: #3b82f6; }
 
         /* ── ANIMATIONS ── */
         @keyframes fadeUp {
@@ -372,7 +327,7 @@ $role = $_SESSION['role'] ?? 'Staff';
 <aside class="sidebar">
     <div class="sidebar-brand">
         <div class="sidebar-logo">
-            <img src="../img/radog_logocutie.png" alt="Radog's Kennel">
+            <img src="../img/radog_logo.png" alt="Radog's Kennel">
         </div>
         <div>
             <div class="sidebar-wordmark-top">Radog's Kennel</div>
@@ -409,7 +364,7 @@ $role = $_SESSION['role'] ?? 'Staff';
             Schedule
         </a>
 
-        <a href="calendar-unified.php" class="nav-link active">
+        <a href="calendar.php" class="nav-link active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Calendar
         </a>
@@ -424,10 +379,10 @@ $role = $_SESSION['role'] ?? 'Staff';
             Pets
         </a>
 
-        <!-- <a href="checkout-unified.php" class="nav-link">
+        <a href="checkout.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
             Checkout / Payments
-        </a> -->
+        </a>
 
         <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
         <a href="user_management.php" class="nav-link">
@@ -450,14 +405,14 @@ $role = $_SESSION['role'] ?? 'Staff';
 ════════════════════════════════════════════════════════════ -->
 <main class="main-content">
 
-    <a href="calendar-unified.php" class="back-link">
+    <a href="calendar.php" class="back-link">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         Back to Calendar
     </a>
 
     <div class="page-eyebrow">Reservations</div>
     <h1 class="page-title">Manage Booking</h1>
-    <p class="page-subtitle">Review and update compliance status for this reservation.</p>
+    <p class="page-subtitle">Review and update the status for this reservation.</p>
 
     <div class="booking-chip">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
@@ -506,109 +461,36 @@ $role = $_SESSION['role'] ?? 'Staff';
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN -->
-            <div class="right-col">
-
-                <!-- Compliance Verification -->
-                <div class="panel">
-                    <div class="panel-header">
-                        <div class="panel-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                        </div>
-                        <span class="panel-heading">Compliance Verification</span>
+            <!-- RIGHT: Booking Status -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     </div>
-
-                    <?php
-                    $reg_checked    = ($booking['REG_FORM_VERIFIED'] ?? 'N') === 'Y';
-                    $waiver_checked = ($booking['CONSENT_FORM_SIGNED'] ?? 'N') === 'Y';
-                    $vacc_checked   = ($booking['VACC_CARD_VERIFIED'] ?? 'N') === 'Y';
-                    ?>
-
-                    <label class="check-row <?php echo $reg_checked ? 'checked' : ''; ?>" id="rowRegForm">
-                        <div class="check-label-wrap">
-                            <div class="check-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                            </div>
-                            <span class="check-text">Pet Physical Registration Form</span>
-                        </div>
-                        <div class="toggle-wrap">
-                            <input type="checkbox" id="checkRegForm" name="reg_form_verified" <?php echo $reg_checked ? 'checked' : ''; ?>>
-                            <div class="toggle-track"></div>
-                        </div>
-                    </label>
-
-                    <label class="check-row <?php echo $waiver_checked ? 'checked' : ''; ?>" id="rowWaiver">
-                        <div class="check-label-wrap">
-                            <div class="check-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                            </div>
-                            <span class="check-text">Waiver and Consent Form</span>
-                        </div>
-                        <div class="toggle-wrap">
-                            <input type="checkbox" id="checkWaiver" name="waiver_verified" <?php echo $waiver_checked ? 'checked' : ''; ?>>
-                            <div class="toggle-track"></div>
-                        </div>
-                    </label>
-
-                    <label class="check-row <?php echo $vacc_checked ? 'checked' : ''; ?>" id="rowVaccCard">
-                        <div class="check-label-wrap">
-                            <div class="check-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                            </div>
-                            <span class="check-text">Vaccination Card</span>
-                        </div>
-                        <div class="toggle-wrap">
-                            <input type="checkbox" id="checkVaccCard" name="vacc_card_verified" <?php echo $vacc_checked ? 'checked' : ''; ?>>
-                            <div class="toggle-track"></div>
-                        </div>
-                    </label>
+                    <span class="panel-heading">Booking Status</span>
                 </div>
 
-                <!-- Booking Status -->
-                <div class="panel">
-                    <div class="panel-header">
-                        <div class="panel-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        </div>
-                        <span class="panel-heading">Booking Status</span>
-                    </div>
-
-                    <div class="field-group">
-                        <label class="field-label" for="statusSelect">Current Status</label>
-                        <select name="status" id="statusSelect">
-                            <option value="Pending"   <?php echo $booking['BOOKING_STATUS'] === 'Pending'   ? 'selected' : ''; ?>>Pending</option>
-                            <option value="Confirmed" <?php echo $booking['BOOKING_STATUS'] === 'Confirmed' ? 'selected' : ''; ?>>Confirmed</option>
-                            <option value="Cancelled" <?php echo $booking['BOOKING_STATUS'] === 'Cancelled' ? 'selected' : ''; ?>>Cancelled</option>
-                            <option value="Completed" <?php echo $booking['BOOKING_STATUS'] === 'Completed' ? 'selected' : ''; ?>>Completed</option>
-                        </select>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                        Save Changes
-                    </button>
+                <div class="field-group">
+                    <label class="field-label" for="statusSelect">Current Status</label>
+                    <select name="status" id="statusSelect">
+                        <option value="Pending"   <?php echo $booking['BOOKING_STATUS'] === 'Pending'   ? 'selected' : ''; ?>>Pending</option>
+                        <option value="Confirmed" <?php echo $booking['BOOKING_STATUS'] === 'Confirmed' ? 'selected' : ''; ?>>Confirmed</option>
+                        <option value="Cancelled" <?php echo $booking['BOOKING_STATUS'] === 'Cancelled' ? 'selected' : ''; ?>>Cancelled</option>
+                        <option value="Completed" <?php echo $booking['BOOKING_STATUS'] === 'Completed' ? 'selected' : ''; ?>>Completed</option>
+                    </select>
                 </div>
 
-            </div><!-- /.right-col -->
+                <button type="submit" class="btn btn-primary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    Save Changes
+                </button>
+            </div>
+
         </div><!-- /.content-grid -->
     </form>
 
 </main>
 
 <script src="../assets/js/validation.js"></script>
-<script>
-    // Sync check-row highlight state with toggle checkboxes
-    document.querySelectorAll('.check-row').forEach(function(row) {
-        const checkbox = row.querySelector('input[type="checkbox"]');
-        if (!checkbox) return;
-        checkbox.addEventListener('change', function() {
-            if (this.checked) {
-                row.classList.add('checked');
-            } else {
-                row.classList.remove('checked');
-            }
-        });
-    });
-</script>
 </body>
 </html>
