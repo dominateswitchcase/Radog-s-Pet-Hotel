@@ -72,7 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            // Graceful constraint error handling
             if (strpos($e->getMessage(), 'ORA-00001') !== false) {
                 echo json_encode(['success' => false, 'message' => 'Error: The contact number provided is already registered.']);
             } else {
@@ -103,7 +102,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pets_stmt->execute(['id' => $owner_id]);
         $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        echo json_encode(['success' => true, 'data' => ['owner' => $owner, 'pets' => $pets]]);
+        // Fetch documents for this owner's pets
+        $docs_stmt = $pdo->prepare("
+            SELECT pd.DOC_ID, pd.DOCUMENT_TYPE, pd.FILEPATH, pd.UPLOAD_DATE, pd.PET_ID,
+                   dd.VERIFICATION_STATUS, dd.DATE_VERIFIED
+            FROM PET_DOCUMENT pd
+            LEFT JOIN DOCUMENT_DETAILS dd ON pd.DOC_ID = dd.DOC_ID AND pd.PET_ID = dd.PET_ID
+            WHERE pd.PET_ID IN (SELECT PET_ID FROM PET WHERE OWNER_ID = :id)
+            ORDER BY pd.UPLOAD_DATE DESC
+        ");
+        $docs_stmt->execute(['id' => $owner_id]);
+        $documents = $docs_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode(['success' => true, 'data' => ['owner' => $owner, 'pets' => $pets, 'documents' => $documents]]);
         exit();
     }
 
@@ -204,11 +215,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
     }
+
+    // NEW: Reactivate owner (admin only)
+    if ($action === 'reactivate_owner') {
+        header('Content-Type: application/json');
+
+        if (!isset($_SESSION['role']) || strtolower(trim($_SESSION['role'])) !== 'admin') {
+            echo json_encode(['success' => false, 'message' => 'Unauthorized Access: Only Administrators can reactivate profiles.']);
+            exit();
+        }
+
+        $owner_id = filter_input(INPUT_POST, 'owner_id', FILTER_VALIDATE_INT);
+        if (!$owner_id) {
+            echo json_encode(['success' => false, 'message' => 'Invalid owner ID']);
+            exit();
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare("UPDATE PET SET STATUS = 'Active' WHERE OWNER_ID = :owner_id")->execute(['owner_id' => $owner_id]);
+            $pdo->prepare("UPDATE OWNER SET STATUS = 'Active' WHERE OWNER_ID = :owner_id")->execute(['owner_id' => $owner_id]);
+            $pdo->commit();
+            echo json_encode(['success' => true, 'message' => 'Owner and pet profiles have been reactivated.']);
+            exit();
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            echo json_encode(['success' => false, 'message' => 'Reactivation failed: ' . $e->getMessage()]);
+            exit();
+        }
+    }
 }
 
-// Handle Search Query
-$search = $_GET['search'] ?? '';
-$queryStr = "SELECT OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER FROM OWNER WHERE (STATUS = 'Active' OR STATUS IS NULL)";
+// ── Handle Search Query & Status Filter ──────────────────────────────────────
+$search      = $_GET['search'] ?? '';
+$statusFilter = $_GET['status_filter'] ?? 'active'; // 'active' | 'inactive'
+$isAdmin     = isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin';
+
+// Non-admin always sees active only
+if (!$isAdmin) {
+    $statusFilter = 'active';
+}
+
+$statusCondition = ($statusFilter === 'inactive') ? "STATUS = 'Inactive'" : "(STATUS = 'Active' OR STATUS IS NULL)";
+
+$queryStr = "SELECT OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS FROM OWNER WHERE $statusCondition";
 $params = [];
 
 if (!empty($search)) {
@@ -358,7 +408,7 @@ $role = $_SESSION['role'] ?? 'Staff';
             display: flex; align-items: center; gap: 14px; margin-bottom: 24px; flex-wrap: wrap;
         }
         .search-wrap {
-            position: relative; flex-grow: 1; max-width: 460px;
+            position: relative; flex-grow: 1; max-width: 420px;
         }
         .search-wrap svg {
             position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
@@ -375,6 +425,31 @@ $role = $_SESSION['role'] ?? 'Staff';
             border-color: var(--orange); box-shadow: 0 0 0 3px rgba(250,129,18,0.15);
             outline: none;
         }
+
+        /* ── STATUS FILTER TABS (Admin only) ── */
+        .status-tabs {
+            display: flex; align-items: center;
+            background: var(--white); border: var(--border-soft); border-radius: 12px;
+            padding: 4px; gap: 2px;
+        }
+        .status-tab {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 9px 18px; border-radius: 9px;
+            font-family: 'Bebas Neue', sans-serif; font-size: 0.88rem; letter-spacing: 0.1em;
+            text-decoration: none; color: rgba(34,34,34,0.5);
+            transition: background 0.18s, color 0.18s;
+            border: none; cursor: pointer; background: transparent; white-space: nowrap;
+        }
+        .status-tab svg { width: 14px; height: 14px; }
+        .status-tab:hover { background: rgba(250,129,18,0.08); color: var(--orange); }
+        .status-tab.active-tab {
+            background: var(--black); color: var(--white);
+        }
+        .status-tab.active-tab:hover { background: var(--orange); }
+        .status-tab.inactive-tab.active-tab {
+            background: #be123c; color: var(--white);
+        }
+        .status-tab.inactive-tab.active-tab:hover { background: #9f1239; }
 
         /* ── BUTTONS ── */
         .btn {
@@ -395,6 +470,8 @@ $role = $_SESSION['role'] ?? 'Staff';
         .btn-ghost:hover   { background: rgba(34,34,34,0.04); border-color: var(--orange); }
         .btn-deactivate { background: #fff1f2; color: #be123c; border: 1.5px solid #fecdd3; }
         .btn-deactivate:hover { background: #ffe4e8; border-color: #f43f5e; }
+        .btn-reactivate { background: #f0fdf4; color: #166534; border: 1.5px solid #bbf7d0; }
+        .btn-reactivate:hover { background: #dcfce7; border-color: #4ade80; }
         .btn-sm { padding: 8px 14px; font-size: 0.82rem; }
 
         /* ── PANEL ── */
@@ -420,6 +497,20 @@ $role = $_SESSION['role'] ?? 'Staff';
             font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem;
             color: var(--orange); letter-spacing: 0.08em;
         }
+
+        /* Inactive row styling */
+        .data-table tbody tr.row-inactive { opacity: 0.6; }
+        .data-table tbody tr.row-inactive:hover { background: rgba(190,18,60,0.03); }
+
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 99px; font-size: 0.78rem; font-weight: 600;
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .badge-active   { background: #f0fdf4; color: #166534; }
+        .badge-active .status-dot   { background: #22c55e; }
+        .badge-inactive { background: #fef2f2; color: #991b1b; }
+        .badge-inactive .status-dot { background: #ef4444; }
 
         .action-group { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 
@@ -496,16 +587,6 @@ $role = $_SESSION['role'] ?? 'Staff';
         .check-text-wrap { flex-grow: 1; }
         .check-title { font-size: 0.9rem; font-weight: 600; color: var(--black); line-height: 1.2; }
         .check-desc  { font-size: 0.78rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
-
-        /* ── VERIFICATION SECTION DIVIDER ── */
-        .verify-divider {
-            display: flex; align-items: center; gap: 10px;
-            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
-            color: rgba(34,34,34,0.35); margin-bottom: 12px; margin-top: 4px;
-        }
-        .verify-divider::before, .verify-divider::after {
-            content: ''; flex: 1; height: 1px; background: rgba(34,34,34,0.1);
-        }
 
         /* ── ALERTS ── */
         .alert {
@@ -599,6 +680,53 @@ $role = $_SESSION['role'] ?? 'Staff';
 
         .alert-wrap { margin-top: 16px; }
 
+        /* ── DOCUMENT LIST (Edit Modal) ── */
+        .doc-list { display: flex; flex-direction: column; gap: 10px; }
+        .doc-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 14px; background: var(--beige);
+            border: 1.5px solid #e2d9ce; border-radius: 12px;
+            transition: border-color 0.18s;
+        }
+        .doc-item:hover { border-color: rgba(250,129,18,0.3); }
+        .doc-icon {
+            width: 34px; height: 34px; border-radius: 8px;
+            background: rgba(250,129,18,0.1);
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .doc-icon svg { width: 16px; height: 16px; color: var(--orange); }
+        .doc-info { flex-grow: 1; min-width: 0; }
+        .doc-type { font-size: 0.88rem; font-weight: 600; color: var(--black); }
+        .doc-meta { font-size: 0.75rem; color: rgba(34,34,34,0.45); margin-top: 2px; }
+        .doc-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 4px 10px; border-radius: 99px; font-size: 0.72rem; font-weight: 600;
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .doc-badge-approved  { background: #f0fdf4; color: #166534; }
+        .doc-badge-pending   { background: #fffbeb; color: #92400e; }
+        .doc-badge-rejected  { background: #fef2f2; color: #991b1b; }
+        .doc-badge-none      { background: rgba(34,34,34,0.06); color: rgba(34,34,34,0.45); }
+        .doc-link {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 0.78rem; color: var(--orange); text-decoration: none;
+            padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(250,129,18,0.25);
+            background: rgba(250,129,18,0.05); transition: background 0.15s;
+            flex-shrink: 0;
+        }
+        .doc-link:hover { background: rgba(250,129,18,0.12); }
+        .doc-link svg { width: 12px; height: 12px; }
+
+        .doc-empty {
+            padding: 20px; text-align: center; color: rgba(34,34,34,0.35);
+            font-size: 0.88rem; background: var(--beige); border-radius: 12px;
+            border: 1.5px dashed #e2d9ce;
+        }
+        .doc-loading {
+            padding: 20px; text-align: center; color: rgba(34,34,34,0.4);
+            font-size: 0.88rem;
+        }
+
         /* ── ANIMATIONS ── */
         @keyframes fadeUp {
             from { opacity: 0; transform: translateY(20px); }
@@ -611,6 +739,8 @@ $role = $_SESSION['role'] ?? 'Staff';
             .sidebar { width: 100%; height: auto; position: static; }
             .main-content { padding: 24px 20px; }
             .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .toolbar { flex-direction: column; align-items: stretch; }
+            .search-wrap { max-width: 100%; }
         }
     </style>
 </head>
@@ -674,6 +804,11 @@ $role = $_SESSION['role'] ?? 'Staff';
             Pets
         </a>
 
+        <a href="checkout.php" class="nav-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            Checkout / Payments
+        </a>
+
         <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
         <a href="user_management.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -701,16 +836,42 @@ $role = $_SESSION['role'] ?? 'Staff';
 
     <!-- Toolbar -->
     <div class="toolbar">
+        <!-- Search (wraps its own form so GET params work) -->
         <div class="search-wrap">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <form action="owner.php" method="GET">
-                <input type="text" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Search by name or contact number…">
+            <form action="owner.php" method="GET" style="display:contents;">
+                <?php if ($isAdmin): ?>
+                    <input type="hidden" name="status_filter" value="<?php echo htmlspecialchars($statusFilter); ?>">
+                <?php endif; ?>
+                <input type="text" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Search by name or contact number…" onchange="this.form.submit()">
             </form>
         </div>
+
+        <?php if ($isAdmin): ?>
+        <!-- Status Filter Tabs — Admin Only -->
+        <div class="status-tabs">
+            <a href="owner.php?status_filter=active<?php echo !empty($search) ? '&search='.urlencode($search) : ''; ?>"
+               class="status-tab active-tab <?php echo $statusFilter === 'active' ? 'active-tab' : ''; ?>"
+               style="<?php echo $statusFilter !== 'active' ? 'background:transparent;color:rgba(34,34,34,0.5);' : ''; ?>">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Active
+            </a>
+            <a href="owner.php?status_filter=inactive<?php echo !empty($search) ? '&search='.urlencode($search) : ''; ?>"
+               class="status-tab inactive-tab <?php echo $statusFilter === 'inactive' ? 'active-tab' : ''; ?>"
+               style="<?php echo $statusFilter !== 'inactive' ? 'background:transparent;color:rgba(34,34,34,0.5);' : ''; ?>">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                Archived
+            </a>
+        </div>
+        <?php endif; ?>
+
+        <!-- Register button — only for active view or staff -->
+        <?php if (!$isAdmin || $statusFilter === 'active'): ?>
         <button type="button" class="btn btn-primary" onclick="openModal('createOwnerModal')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
             Register Walk-in Owner
         </button>
+        <?php endif; ?>
     </div>
 
     <!-- Table Panel -->
@@ -722,6 +883,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                     <th>First Name</th>
                     <th>Last Name</th>
                     <th>Contact</th>
+                    <?php if ($isAdmin): ?><th>Status</th><?php endif; ?>
                     <th style="text-align:right;">Actions</th>
                 </tr>
             </thead>
@@ -731,37 +893,58 @@ $role = $_SESSION['role'] ?? 'Staff';
                 if (empty($rows)):
                 ?>
                 <tr>
-                    <td colspan="5">
+                    <td colspan="<?php echo $isAdmin ? 6 : 5; ?>">
                         <div class="empty-state">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                            <p>No owner records found.</p>
+                            <p><?php echo $statusFilter === 'inactive' ? 'No archived owner records found.' : 'No owner records found.'; ?></p>
                         </div>
                     </td>
                 </tr>
-                <?php else: foreach ($rows as $row): ?>
-                <tr>
+                <?php else: foreach ($rows as $row):
+                    $isInactiveRow = strtolower($row['STATUS'] ?? 'active') === 'inactive';
+                ?>
+                <tr class="<?php echo $isInactiveRow ? 'row-inactive' : ''; ?>">
                     <td><span class="owner-id-badge">OWN-<?php echo str_pad($row['OWNER_ID'], 4, '0', STR_PAD_LEFT); ?></span></td>
                     <td><?php echo htmlspecialchars($row['FIRST_NAME']); ?></td>
                     <td><?php echo htmlspecialchars($row['LAST_NAME']); ?></td>
                     <td><?php echo htmlspecialchars($row['CONTACT_NUMBER']); ?></td>
+                    <?php if ($isAdmin): ?>
+                    <td>
+                        <?php if ($isInactiveRow): ?>
+                            <span class="status-badge badge-inactive"><span class="status-dot"></span>Archived</span>
+                        <?php else: ?>
+                            <span class="status-badge badge-active"><span class="status-dot"></span>Active</span>
+                        <?php endif; ?>
+                    </td>
+                    <?php endif; ?>
                     <td>
                         <div class="action-group">
                             <a href="owner_profile.php?id=<?php echo $row['OWNER_ID']; ?>" class="btn btn-ghost btn-sm">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 View
                             </a>
+                            <?php if (!$isInactiveRow): ?>
                             <button type="button" class="btn btn-primary btn-sm edit-owner-btn"
                                     data-owner-id="<?php echo $row['OWNER_ID']; ?>"
                                     onclick="openModal('editOwnerModal')">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 Edit
                             </button>
-                            <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
-                            <button type="button" class="btn btn-deactivate btn-sm delete-owner-btn"
-                                    data-owner-id="<?php echo $row['OWNER_ID']; ?>">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-                                Deactivate
-                            </button>
+                            <?php endif; ?>
+                            <?php if ($isAdmin): ?>
+                                <?php if ($isInactiveRow): ?>
+                                <button type="button" class="btn btn-reactivate btn-sm reactivate-owner-btn"
+                                        data-owner-id="<?php echo $row['OWNER_ID']; ?>">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                    Reactivate
+                                </button>
+                                <?php else: ?>
+                                <button type="button" class="btn btn-deactivate btn-sm delete-owner-btn"
+                                        data-owner-id="<?php echo $row['OWNER_ID']; ?>">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                                    Deactivate
+                                </button>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </td>
@@ -811,13 +994,11 @@ $role = $_SESSION['role'] ?? 'Staff';
                     <div class="pet-entry">
                         <div class="pet-entry-header">Pet #1</div>
 
-                        <!-- Pet name -->
                         <div class="field-group">
                             <label class="field-label">Pet Name</label>
                             <input type="text" name="pets[0][pet_name]" placeholder="e.g. Buddy" required>
                         </div>
 
-                        <!-- Category + Weight -->
                         <div class="grid-2" style="margin-bottom:16px;">
                             <div class="field-group">
                                 <label class="field-label">Species / Category</label>
@@ -834,7 +1015,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                             </div>
                         </div>
 
-                        <!-- Sex -->
                         <div class="field-group" style="margin-bottom:16px;">
                             <label class="field-label">Sex</label>
                             <div class="radio-group">
@@ -843,7 +1023,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                             </div>
                         </div>
 
-                        <!-- Feeding time + Portion -->
                         <div class="grid-2" style="margin-bottom:0;">
                             <div class="field-group">
                                 <label class="field-label">Feeding Time</label>
@@ -855,7 +1034,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                             </div>
                         </div>
 
-                        <!-- ── NEW: Document Upload ── -->
                         <div class="field-group" style="margin-top:4px;">
                             <label class="field-label">Attach Pet Documents</label>
                             <div class="file-upload-wrap">
@@ -870,12 +1048,9 @@ $role = $_SESSION['role'] ?? 'Staff';
                             <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files.</span>
                         </div>
 
-                        <!-- ── NEW: Ocular & Vaccine Checks ── -->
                         <div class="field-group" style="margin-bottom:0;">
                             <label class="field-label">Check-In Verifications</label>
                             <div class="check-group">
-
-                                <!-- Ocular Exam -->
                                 <label class="check-label" onclick="toggleCheck(this)">
                                     <input type="checkbox" name="pets[0][ocular_exam]" value="Yes">
                                     <span class="check-icon">
@@ -886,8 +1061,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                                         <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
                                     </span>
                                 </label>
-
-                                <!-- Vaccination Verified -->
                                 <label class="check-label" onclick="toggleCheck(this)">
                                     <input type="checkbox" name="pets[0][vaccine_verified]" value="Yes">
                                     <span class="check-icon">
@@ -898,11 +1071,8 @@ $role = $_SESSION['role'] ?? 'Staff';
                                         <span class="check-desc">Vaccination records checked and confirmed.</span>
                                     </span>
                                 </label>
-
                             </div>
                         </div>
-                        <!-- ── END NEW FIELDS ── -->
-
                     </div>
                     <!-- ── END PET ENTRY TEMPLATE ── -->
                 </div>
@@ -989,7 +1159,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                     </div>
                 </div>
 
-                <div class="grid-3">
+                <div class="grid-3" style="margin-bottom:24px;">
                     <div class="field-group">
                         <label class="field-label">Sex</label>
                         <select id="modalPetSex" name="sex" required>
@@ -1005,6 +1175,65 @@ $role = $_SESSION['role'] ?? 'Staff';
                         <label class="field-label">Portion</label>
                         <input type="text" id="modalPortion" name="portion" placeholder="e.g. 1 cup" required>
                     </div>
+                </div>
+
+                <!-- ══════════════════════════════════════
+                     DOCUMENT VERIFICATIONS SECTION
+                ════════════════════════════════════════ -->
+                <div class="modal-section-label">Document Verifications</div>
+
+                <!-- Check-In Verifications (read-only display + checkboxes) -->
+                <div class="field-group" style="margin-bottom:16px;">
+                    <label class="field-label">Verification Status</label>
+                    <div class="check-group" id="editVerificationChecks">
+                        <!-- Ocular Exam -->
+                        <label class="check-label" onclick="toggleCheck(this)">
+                            <input type="checkbox" name="ocular_exam" id="editOcularExam" value="Yes">
+                            <span class="check-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </span>
+                            <span class="check-text-wrap">
+                                <span class="check-title">Ocular Exam Passed</span>
+                                <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
+                            </span>
+                        </label>
+                        <!-- Vaccination Verified -->
+                        <label class="check-label" onclick="toggleCheck(this)">
+                            <input type="checkbox" name="vaccine_verified" id="editVaccineVerified" value="Yes">
+                            <span class="check-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            </span>
+                            <span class="check-text-wrap">
+                                <span class="check-title">Vaccination Verified</span>
+                                <span class="check-desc">Vaccination records checked and confirmed.</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- ── Uploaded Documents ── -->
+                <div class="modal-section-label">Uploaded Documents</div>
+
+                <div id="editDocumentsList">
+                    <div class="doc-loading">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;display:inline-block;vertical-align:middle;margin-right:6px;opacity:0.4;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Select an owner above to load documents.
+                    </div>
+                </div>
+
+                <!-- ── Upload New Document ── -->
+                <div class="field-group" style="margin-top:16px;">
+                    <label class="field-label">Upload Additional Document</label>
+                    <div class="file-upload-wrap">
+                        <label class="file-upload-label" id="editFileLabel" for="editPetDoc">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span class="file-name">Attach new document&hellip;</span>
+                        </label>
+                        <input type="file" name="new_document[]" id="editPetDoc"
+                               accept=".pdf,.jpg,.jpeg,.png" multiple
+                               onchange="updateFileLabel(this, 'editFileLabel')">
+                    </div>
+                    <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files.</span>
                 </div>
 
                 <div id="modalAlert" class="alert-wrap" style="display:none;"></div>
@@ -1076,7 +1305,6 @@ $role = $_SESSION['role'] ?? 'Staff';
 
     // ── Checkbox toggle visual state ───────────────────────
     function toggleCheck(labelEl) {
-        // Defer so the checkbox checked state updates first
         setTimeout(function() {
             var cb = labelEl.querySelector('input[type="checkbox"]');
             if (cb && cb.checked) {
@@ -1087,9 +1315,56 @@ $role = $_SESSION['role'] ?? 'Staff';
         }, 0);
     }
 
+    // ── Render document list in edit modal ─────────────────
+    function renderDocuments(documents, currentPetId) {
+        var container = document.getElementById('editDocumentsList');
+        var petDocs = documents.filter(function(d) {
+            return String(d.PET_ID) === String(currentPetId);
+        });
+
+        if (petDocs.length === 0) {
+            container.innerHTML = '<div class="doc-empty">No documents uploaded for this pet yet.</div>';
+            return;
+        }
+
+        var html = '<div class="doc-list">';
+        petDocs.forEach(function(doc) {
+            var status = doc.VERIFICATION_STATUS || 'none';
+            var statusLower = status.toLowerCase();
+            var badgeClass = 'doc-badge-' + (statusLower === 'approved' ? 'approved' : statusLower === 'pending' ? 'pending' : statusLower === 'rejected' ? 'rejected' : 'none');
+            var statusLabel = status === 'none' ? 'Unverified' : status;
+
+            var dotColor = statusLower === 'approved' ? '#22c55e' : statusLower === 'pending' ? '#f59e0b' : statusLower === 'rejected' ? '#ef4444' : '#94a3b8';
+
+            var uploadDate = doc.UPLOAD_DATE ? doc.UPLOAD_DATE.split('T')[0] : '—';
+            var verifiedDate = doc.DATE_VERIFIED ? doc.DATE_VERIFIED.split('T')[0] : '';
+
+            html += '<div class="doc-item">';
+            html +=   '<div class="doc-icon">';
+            html +=     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+            html +=   '</div>';
+            html +=   '<div class="doc-info">';
+            html +=     '<div class="doc-type">' + (doc.DOCUMENT_TYPE || 'Document') + '</div>';
+            html +=     '<div class="doc-meta">Uploaded: ' + uploadDate + (verifiedDate ? ' &middot; Verified: ' + verifiedDate : '') + '</div>';
+            html +=   '</div>';
+            html +=   '<span class="doc-badge ' + badgeClass + '">';
+            html +=     '<svg style="width:7px;height:7px;fill:' + dotColor + ';flex-shrink:0;" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>';
+            html +=     statusLabel;
+            html +=   '</span>';
+            html +=   '<a href="' + doc.FILEPATH + '" target="_blank" class="doc-link">';
+            html +=     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+            html +=     'View';
+            html +=   '</a>';
+            html += '</div>';
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const ownerSelect = document.getElementById('modalPetSelect');
         let ownerPets = [];
+        let allDocuments = [];
 
         // ====================================================
         // JELLYACE: "Add Another Pet" Dynamic Cloning Logic
@@ -1102,10 +1377,8 @@ $role = $_SESSION['role'] ?? 'Staff';
             const firstPet = petEntries[0];
             const newPet = firstPet.cloneNode(true);
             
-            // Update header
             newPet.querySelector('.pet-entry-header').textContent = 'Pet #' + (newIndex + 1);
 
-            // Reset values and update nested array indices for standard inputs
             const inputs = newPet.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], select, textarea');
             inputs.forEach(function(input) {
                 const name = input.name;
@@ -1115,7 +1388,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                 input.value = '';
             });
 
-            // Reset radio buttons (sex)
             newPet.querySelectorAll('input[type="radio"]').forEach(function(radio) {
                 if (radio.name) {
                     radio.name = radio.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
@@ -1123,7 +1395,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                 radio.checked = radio.value === 'Male';
             });
 
-            // Reset file upload input and re-link label
             var fileInput = newPet.querySelector('input[type="file"]');
             var fileLabel = newPet.querySelector('.file-upload-label');
             if (fileInput && fileLabel) {
@@ -1140,7 +1411,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                 fileLabel.style.color = '';
             }
 
-            // Reset checkboxes and visual state
             newPet.querySelectorAll('.check-label').forEach(function(cl) {
                 cl.classList.remove('checked');
                 var cb = cl.querySelector('input[type="checkbox"]');
@@ -1152,7 +1422,6 @@ $role = $_SESSION['role'] ?? 'Staff';
                 }
             });
 
-            // Add remove button
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
             removeBtn.className = 'btn-remove-pet';
@@ -1197,7 +1466,7 @@ $role = $_SESSION['role'] ?? 'Staff';
         });
 
         // ====================================================
-        // Handle Edit & Deactivate (Existing Logic — Unchanged)
+        // Handle Edit & Deactivate
         // ====================================================
         document.querySelectorAll('.edit-owner-btn').forEach(button => {
             button.addEventListener('click', function() {
@@ -1237,10 +1506,40 @@ $role = $_SESSION['role'] ?? 'Staff';
             });
         });
 
+        // ── Reactivate owner buttons ──
+        document.querySelectorAll('.reactivate-owner-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const ownerId = this.getAttribute('data-owner-id');
+
+                if (confirm('Reactivate this owner and all their pet profiles?')) {
+                    const formData = new URLSearchParams();
+                    formData.append('action', 'reactivate_owner');
+                    formData.append('owner_id', ownerId);
+
+                    fetch('owner.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: formData.toString()
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        alert(data.message);
+                        if (data.success) location.reload();
+                    })
+                    .catch(error => {
+                        alert('An error occurred. Please try again.');
+                        console.error(error);
+                    });
+                }
+            });
+        });
+
+        // ── Pet select change → refresh documents ──
         ownerSelect.addEventListener('change', function() {
-            const selectedPet = ownerPets.find(p => p.PET_ID === this.value);
+            const selectedPet = ownerPets.find(p => String(p.PET_ID) === this.value);
             if (selectedPet) {
                 fillPetFields(selectedPet);
+                renderDocuments(allDocuments, selectedPet.PET_ID);
             }
         });
 
@@ -1275,6 +1574,10 @@ $role = $_SESSION['role'] ?? 'Staff';
         });
 
         function loadOwnerData(ownerId) {
+            // Reset document section while loading
+            document.getElementById('editDocumentsList').innerHTML =
+                '<div class="doc-loading">Loading documents&hellip;</div>';
+
             fetch('owner.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1290,6 +1593,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                 document.getElementById('modalAlert').style.display = 'none';
                 const owner = data.data.owner;
                 ownerPets = data.data.pets || [];
+                allDocuments = data.data.documents || [];
 
                 document.getElementById('modalOwnerId').value = owner.OWNER_ID;
                 document.getElementById('modalOwnerCode').value = 'OWN-' + String(owner.OWNER_ID).padStart(4, '0');
@@ -1298,7 +1602,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                 document.getElementById('modalContactNumber').value = owner.CONTACT_NUMBER;
 
                 ownerSelect.innerHTML = '';
-                ownerPets.forEach((pet, index) => {
+                ownerPets.forEach((pet) => {
                     const option = document.createElement('option');
                     option.value = pet.PET_ID;
                     option.textContent = pet.PET_NAME;
@@ -1308,6 +1612,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                 if (ownerPets.length > 0) {
                     ownerSelect.value = ownerPets[0].PET_ID;
                     fillPetFields(ownerPets[0]);
+                    renderDocuments(allDocuments, ownerPets[0].PET_ID);
                 } else {
                     document.getElementById('modalPetId').value = '';
                     document.getElementById('modalPetName').value = '';
@@ -1316,6 +1621,8 @@ $role = $_SESSION['role'] ?? 'Staff';
                     document.getElementById('modalPetSex').value = 'Male';
                     document.getElementById('modalFeedingTime').value = '';
                     document.getElementById('modalPortion').value = '';
+                    document.getElementById('editDocumentsList').innerHTML =
+                        '<div class="doc-empty">No pets registered for this owner.</div>';
                 }
             })
             .catch(error => {
