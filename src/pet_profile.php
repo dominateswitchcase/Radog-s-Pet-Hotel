@@ -504,6 +504,220 @@ function verif_badge($status) {
         }
         .doc-empty svg { width: 36px; height: 36px; opacity: 0.3; }
 
+        /* ══════════════════════════════════════════════════════
+           DOCUMENT VIEWER MODAL
+        ══════════════════════════════════════════════════════ */
+        .doc-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(34,34,34,0.72);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .doc-modal-overlay.open { display: flex; }
+
+        .doc-modal-box {
+            background: var(--white);
+            border-radius: var(--radius-card);
+            width: min(100%, 860px);
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 40px 100px rgba(15,23,42,0.28);
+            animation: fadeUp 0.32s cubic-bezier(0.16,1,0.3,1) both;
+            overflow: hidden;
+        }
+
+        .doc-modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 24px;
+            background-color: var(--black);
+            background-image: repeating-linear-gradient(
+                -55deg, transparent, transparent 18px,
+                rgba(250,129,18,0.05) 18px, rgba(250,129,18,0.05) 19px
+            );
+            flex-shrink: 0;
+            gap: 14px;
+        }
+        .doc-modal-title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+        .doc-modal-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            background: rgba(250,129,18,0.18);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .doc-modal-icon svg { width: 16px; height: 16px; color: var(--orange); }
+        .doc-modal-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.15rem;
+            color: var(--white);
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .doc-modal-subtitle {
+            font-size: 0.72rem;
+            color: rgba(245,231,198,0.45);
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+        .doc-modal-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .doc-modal-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            border-radius: 9px;
+            border: 1.5px solid rgba(245,231,198,0.18);
+            background: transparent;
+            color: rgba(245,231,198,0.75);
+            font-size: 0.8rem;
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.18s, border-color 0.18s, color 0.18s;
+        }
+        .doc-modal-btn svg { width: 13px; height: 13px; }
+        .doc-modal-btn:hover {
+            background: rgba(250,129,18,0.18);
+            border-color: var(--orange);
+            color: var(--white);
+        }
+        .doc-modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: rgba(245,231,198,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.18s, color 0.18s;
+            flex-shrink: 0;
+        }
+        .doc-modal-close svg { width: 16px; height: 16px; }
+        .doc-modal-close:hover { background: rgba(250,129,18,0.22); color: var(--white); }
+
+        .doc-modal-body {
+            flex-grow: 1;
+            overflow: hidden;
+            position: relative;
+            background: #f0ebe0;
+            min-height: 300px;
+        }
+
+        /* PDF iframe */
+        .doc-viewer-iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 540px;
+            border: none;
+            display: block;
+        }
+
+        /* Image viewer */
+        .doc-viewer-img-wrap {
+            width: 100%;
+            height: 100%;
+            min-height: 540px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            overflow: auto;
+        }
+        .doc-viewer-img-wrap img {
+            max-width: 100%;
+            max-height: 70vh;
+            border-radius: 8px;
+            box-shadow: 0 8px 40px rgba(34,34,34,0.18);
+            object-fit: contain;
+        }
+
+        /* Unsupported / fallback */
+        .doc-viewer-fallback {
+            width: 100%;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 40px;
+            text-align: center;
+        }
+        .doc-viewer-fallback svg { width: 52px; height: 52px; color: rgba(34,34,34,0.2); }
+        .doc-viewer-fallback p {
+            font-size: 0.92rem;
+            color: rgba(34,34,34,0.5);
+            max-width: 320px;
+        }
+        .doc-viewer-fallback a {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 22px;
+            border-radius: var(--radius-btn);
+            background: var(--black);
+            color: var(--white);
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 0.92rem;
+            letter-spacing: 0.1em;
+            text-decoration: none;
+            transition: background 0.18s;
+        }
+        .doc-viewer-fallback a:hover { background: var(--orange); }
+        .doc-viewer-fallback a svg { width: 15px; height: 15px; }
+
+        /* Loading spinner */
+        .doc-viewer-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f0ebe0;
+            z-index: 2;
+        }
+        .doc-viewer-loading.hidden { display: none; }
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(250,129,18,0.2);
+            border-top-color: var(--orange);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
         /* Btn */
         .btn {
             display: inline-flex;
@@ -766,21 +980,177 @@ function verif_badge($status) {
                             <span class="status-dot" style="background:<?php echo $vb['dot']; ?>;"></span>
                             <?php echo htmlspecialchars($doc['VERIFICATION_STATUS'] ?? 'Unverified'); ?>
                         </span>
-                        <a href="<?php echo htmlspecialchars($doc['FILEPATH']); ?>"
-                           target="_blank"
+                        <button
+                           type="button"
                            class="btn-icon"
-                           title="View document">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                        </a>
+                           title="View document"
+                           onclick="openDocViewer(
+                               '<?php echo addslashes(htmlspecialchars($doc['FILEPATH'])); ?>',
+                               '<?php echo addslashes(htmlspecialchars($doc['DOCUMENT_TYPE'] ?: 'Document')); ?>'
+                           )">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
                     </div>
                 </div>
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
 
-        </div></div></div><script>
-// JS functionality preserved — no changes to logic
-</script>
+        <!-- ═══════════════════════════════════════════════════════
+     DOCUMENT VIEWER MODAL
+════════════════════════════════════════════════════════ -->
+<div id="doc-viewer-overlay" class="doc-modal-overlay" role="dialog" aria-modal="true" aria-label="Document viewer">
+    <div class="doc-modal-box" id="doc-modal-box">
+
+        <div class="doc-modal-head">
+            <div class="doc-modal-title-wrap">
+                <div class="doc-modal-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div>
+                    <div class="doc-modal-title" id="doc-modal-title">Document</div>
+                    <div class="doc-modal-subtitle" id="doc-modal-subtitle"></div>
+                </div>
+            </div>
+            <div class="doc-modal-controls">
+                <a id="doc-modal-open-link"
+                   href="#"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="doc-modal-btn"
+                   title="Open in new tab">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    Open in new tab
+                </a>
+                <button type="button" class="doc-modal-close" id="doc-modal-close" title="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="doc-modal-body" id="doc-modal-body">
+            <!-- Loading spinner (shown while content loads) -->
+            <div class="doc-viewer-loading" id="doc-viewer-loading">
+                <div class="spinner"></div>
+            </div>
+            <!-- Content injected by JS -->
+        </div>
+
+    </div>
+</div>
+
+</div></div></div><script>
+// ─── Document Viewer ───────────────────────────────────────────────────────
+
+const IMAGE_EXTS = ['jpg','jpeg','png','gif','webp','bmp','svg'];
+const PDF_EXT    = 'pdf';
+
+function getExtension(filepath) {
+    return (filepath.split('.').pop() || '').toLowerCase();
+}
+
+function openDocViewer(filepath, docType) {
+    const overlay  = document.getElementById('doc-viewer-overlay');
+    const body     = document.getElementById('doc-modal-body');
+    const loading  = document.getElementById('doc-viewer-loading');
+    const title    = document.getElementById('doc-modal-title');
+    const subtitle = document.getElementById('doc-modal-subtitle');
+    const openLink = document.getElementById('doc-modal-open-link');
+
+    const ext      = getExtension(filepath);
+    const filename = filepath.split('/').pop();
+
+    // Update header info
+    title.textContent    = docType || 'Document';
+    subtitle.textContent = filename;
+    openLink.href        = filepath;
+
+    // Clear previous content (keep loading spinner)
+    body.innerHTML = `
+        <div class="doc-viewer-loading" id="doc-viewer-loading">
+            <div class="spinner"></div>
+        </div>`;
+
+    // Open overlay
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    // Build viewer based on file type
+    if (ext === PDF_EXT) {
+        // PDF — iframe with browser's built-in PDF viewer
+        const iframe = document.createElement('iframe');
+        iframe.className = 'doc-viewer-iframe';
+        iframe.title     = docType || 'Document';
+        iframe.onload    = () => {
+            const l = document.getElementById('doc-viewer-loading');
+            if (l) l.classList.add('hidden');
+        };
+        iframe.src = filepath;
+        body.appendChild(iframe);
+
+    } else if (IMAGE_EXTS.includes(ext)) {
+        // Image — lightbox
+        const wrap = document.createElement('div');
+        wrap.className = 'doc-viewer-img-wrap';
+        const img = document.createElement('img');
+        img.alt  = docType || 'Document';
+        img.onload = () => {
+            const l = document.getElementById('doc-viewer-loading');
+            if (l) l.classList.add('hidden');
+        };
+        img.onerror = () => showFallback(body, filepath, docType);
+        img.src = filepath;
+        wrap.appendChild(img);
+        body.appendChild(wrap);
+
+    } else {
+        // Unsupported type — fallback with open-in-new-tab
+        showFallback(body, filepath, docType);
+    }
+}
+
+function showFallback(body, filepath, docType) {
+    const ext = getExtension(filepath).toUpperCase() || 'FILE';
+    body.innerHTML = `
+        <div class="doc-viewer-fallback">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <p>In-browser preview is not available for <strong>${ext}</strong> files.</p>
+            <a href="${filepath}" target="_blank" rel="noopener noreferrer">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+                Open in new tab
+            </a>
+        </div>`;
+}
+
+function closeDocViewer() {
+    const overlay = document.getElementById('doc-viewer-overlay');
+    const body    = document.getElementById('doc-modal-body');
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+    // Stop iframe/image loading when closed
+    body.innerHTML = '';
+}
+
+// Close on overlay backdrop click
+document.getElementById('doc-viewer-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeDocViewer();
+});
+
+// Close on × button
+document.getElementById('doc-modal-close').addEventListener('click', closeDocViewer);
+
+// Close on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeDocViewer();
+});
+
 
 </body>
 </html>
