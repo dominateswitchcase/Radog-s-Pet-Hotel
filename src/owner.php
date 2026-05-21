@@ -21,7 +21,6 @@ function resolveTierId($pdo, $weight) {
     $stmt->execute(['w' => $weight, 'w2' => $weight]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($row) return (int)$row['TIER_ID'];
-    // Fallback: largest tier for overweight pets
     $fallback = $pdo->query(
         "SELECT TIER_ID FROM TIER ORDER BY WEIGHT_MAX DESC FETCH FIRST 1 ROWS ONLY"
     );
@@ -30,22 +29,40 @@ function resolveTierId($pdo, $weight) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Normalise a 'Yes'/'No' checkbox value.
+// Accepts 'Yes', '1', 'on', 'true' (case-insensitive) → 'Yes', else 'No'.
+// ─────────────────────────────────────────────────────────────────────────────
+function normaliseYesNo($value) {
+    if ($value === null) return 'No';
+    $v = strtolower(trim((string)$value));
+    return in_array($v, ['yes', '1', 'on', 'true']) ? 'Yes' : 'No';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HELPER: Save uploaded files for a pet → PET_DOCUMENT + DOCUMENT_DETAILS
 // Returns array of error strings (empty = all ok).
+//
+// UPLOAD PATH: always resolves to <project-root>/uploads/pet_docs/
+// which maps to the web path /uploads/pet_docs/<filename>
 // ─────────────────────────────────────────────────────────────────────────────
 function saveDocuments($pdo, $petId, $filesArray, $docType = 'Pet Document') {
     $errors = [];
-    $uploadDir = __DIR__ . '/../uploads/pet_docs/';
+
+    // Resolve the upload directory relative to the project root.
+    // __DIR__ is  <project-root>/pages  (or wherever owner.php lives).
+    // We go one level up to reach <project-root>, then into uploads/pet_docs/.
+    $uploadDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'pet_docs' . DIRECTORY_SEPARATOR;
+
     if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0755, true);
+        if (!mkdir($uploadDir, 0755, true)) {
+            return ["Failed to create upload directory: $uploadDir"];
+        }
     }
 
-    $allowedMime = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
-    $allowedExt  = ['pdf', 'jpg', 'jpeg', 'png'];
+    $allowedExt = ['pdf', 'jpg', 'jpeg', 'png'];
 
-    // Normalise the $_FILES sub-array for multiple files
-    // $filesArray is like $_FILES['pets'][0]['documents'] sub-entry
-    // After normalisation each entry is ['name'=>..,'tmp_name'=>..,'error'=>..]
+    // $filesArray must already be normalised to the standard multi-file shape:
+    // ['name'=>[...],'tmp_name'=>[...],'error'=>[...],'size'=>[...],'type'=>[...]]
     $count = is_array($filesArray['name']) ? count($filesArray['name']) : 0;
 
     for ($i = 0; $i < $count; $i++) {
@@ -61,6 +78,8 @@ function saveDocuments($pdo, $petId, $filesArray, $docType = 'Pet Document') {
 
         $safeName = 'pet_' . $petId . '_' . uniqid() . '.' . $ext;
         $dest     = $uploadDir . $safeName;
+
+        // Normalised web path — always forward slashes for portability
         $webPath  = '/uploads/pet_docs/' . $safeName;
 
         if (!move_uploaded_file($filesArray['tmp_name'][$i], $dest)) {
@@ -68,27 +87,22 @@ function saveDocuments($pdo, $petId, $filesArray, $docType = 'Pet Document') {
             continue;
         }
 
-        // Insert into PET_DOCUMENT
+        // Generate Doc ID manually (no sequence assumed in schema)
+        $doc_id_row = $pdo->query("SELECT NVL(MAX(DOC_ID), 0) + 1 AS NEXT_ID FROM PET_DOCUMENT")->fetch(PDO::FETCH_ASSOC);
+        $docId      = (int) $doc_id_row['NEXT_ID'];
+
         $ins = $pdo->prepare(
             "INSERT INTO PET_DOCUMENT (DOC_ID, DOCUMENT_TYPE, FILEPATH, UPLOAD_DATE, PET_ID)
-             VALUES (PET_DOC_SEQ.NEXTVAL, :dtype, :fpath, SYSDATE, :pid)
-             RETURNING DOC_ID INTO :docid"
+             VALUES (:docid, :dtype, :fpath, SYSDATE, :pid)"
         );
-$doc_id_row = $pdo->query("SELECT NVL(MAX(DOC_ID), 0) + 1 AS NEXT_ID FROM PET_DOCUMENT")->fetch(PDO::FETCH_ASSOC);
-$docId      = (int) $doc_id_row['NEXT_ID'];
+        $ins->execute([
+            'docid' => $docId,
+            'dtype' => $docType,
+            'fpath' => $webPath,
+            'pid'   => $petId,
+        ]);
 
-$ins = $pdo->prepare(
-    "INSERT INTO PET_DOCUMENT (DOC_ID, DOCUMENT_TYPE, FILEPATH, UPLOAD_DATE, PET_ID)
-     VALUES (:docid, :dtype, :fpath, SYSDATE, :pid)"
-);
-$ins->execute([
-    'docid' => $docId,
-    'dtype' => $docType,
-    'fpath' => $webPath,
-    'pid'   => $petId,
-]);
-
-        // Insert into DOCUMENT_DETAILS (status = Pending until staff reviews)
+        // Insert into DOCUMENT_DETAILS — status = Pending until staff reviews
         $det = $pdo->prepare(
             "INSERT INTO DOCUMENT_DETAILS (PET_ID, DOC_ID, VERIFICATION_STATUS, DATE_VERIFIED)
              VALUES (:pid, :did, 'Pending', SYSDATE)"
@@ -106,106 +120,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     // =========================================================================
-    // CREATE OWNER + PET(S)  — now handles file uploads + Tier resolution
+    // CREATE OWNER + PET(S)
+    // NOTE: The four verification checkboxes (consent_form, nexgard,
+    // ocular_exam, vetcard) belong to the BOOKING table in the DB schema,
+    // NOT to PET.  At registration time there is no booking yet, so we cannot
+    // persist them here.  The values collected in the form are intentionally
+    // ignored for DB storage; they will be set when the first booking is
+    // created for the pet.  The checkboxes in the create modal are shown purely
+    // to let staff note which requirements were already satisfied at walk-in so
+    // they can fill them immediately on the booking form.
     // =========================================================================
     if ($action === 'create_owner_pet') {
-    header('Content-Type: application/json');
+        header('Content-Type: application/json');
 
-    $first_name = trim($_POST['first_name'] ?? '');
-    $last_name  = trim($_POST['last_name']  ?? '');
-    $contact    = trim($_POST['contact']    ?? '');
-    $pets       = $_POST['pets']            ?? [];
+        $first_name = trim($_POST['first_name'] ?? '');
+        $last_name  = trim($_POST['last_name']  ?? '');
+        $contact    = trim($_POST['contact']    ?? '');
+        $pets       = $_POST['pets']            ?? [];
 
-    if (!$first_name || !$last_name || !$contact || empty($pets)) {
-        echo json_encode(['success' => false, 'message' => 'Please complete all required fields.']);
-        exit();
-    }
+        if (!$first_name || !$last_name || !$contact || empty($pets)) {
+            echo json_encode(['success' => false, 'message' => 'Please complete all required fields.']);
+            exit();
+        }
 
-    try {
-        $pdo->beginTransaction();
+        try {
+            $pdo->beginTransaction();
 
-        // ── Generate Owner ID manually (no sequence in schema) ──
-        $id_row   = $pdo->query("SELECT NVL(MAX(OWNER_ID), 0) + 1 AS NEXT_ID FROM OWNER")->fetch(PDO::FETCH_ASSOC);
-        $owner_id = (int) $id_row['NEXT_ID'];
+            // Generate Owner ID manually
+            $id_row   = $pdo->query("SELECT NVL(MAX(OWNER_ID), 0) + 1 AS NEXT_ID FROM OWNER")->fetch(PDO::FETCH_ASSOC);
+            $owner_id = (int) $id_row['NEXT_ID'];
 
-        // ── Insert Owner ──
-        $owner_stmt = $pdo->prepare(
-            "INSERT INTO OWNER (OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS)
-             VALUES (:id, :fname, :lname, :contact, 'Active')"
-        );
-        $owner_stmt->execute([
-            'id'      => $owner_id,
-            'fname'   => $first_name,
-            'lname'   => $last_name,
-            'contact' => $contact,
-        ]);
-
-        // ── Insert each Pet ──
-        foreach ($pets as $idx => $pet) {
-            $weight  = (float)($pet['pet_weight'] ?? 0);
-            $tier_id = resolveTierId($pdo, $weight);
-
-            // Generate Pet ID manually
-            $pet_id_row = $pdo->query("SELECT NVL(MAX(PET_ID), 0) + 1 AS NEXT_ID FROM PET")->fetch(PDO::FETCH_ASSOC);
-            $new_pet_id = (int) $pet_id_row['NEXT_ID'];
-
-            $pet_stmt = $pdo->prepare(
-                "INSERT INTO PET (
-                    PET_ID, PET_NAME, SEX, WEIGHT, FEEDING_TIME,
-                    FEEDING_PORTION, OWNER_ID, CATEGORY_ID, TIER_ID,
-                    BEHAVIORAL_NOTES, STATUS
-                 ) VALUES (
-                    :pid, :name, :sex, :weight, :ftime,
-                    :fportion, :oid, :cid, :tid,
-                    :notes, 'Active'
-                 )"
+            $owner_stmt = $pdo->prepare(
+                "INSERT INTO OWNER (OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER, STATUS)
+                 VALUES (:id, :fname, :lname, :contact, 'Active')"
             );
-            $pet_stmt->execute([
-                'pid'     => $new_pet_id,
-                'name'    => $pet['pet_name'],
-                'sex'     => ucfirst($pet['sex'] ?? 'Male'),
-                'weight'  => $weight,
-                'ftime'   => $pet['feeding_time'] ?? null,
-                'fportion'=> $pet['portion']      ?? null,
-                'oid'     => $owner_id,
-                'cid'     => (int)($pet['category_id'] ?? 1),
-                'tid'     => $tier_id,
-                'notes'   => 'Initial registration onboarding.',
+            $owner_stmt->execute([
+                'id'      => $owner_id,
+                'fname'   => $first_name,
+                'lname'   => $last_name,
+                'contact' => $contact,
             ]);
 
-            // ── Save uploaded documents for this pet ──
-            if (
-                isset($_FILES['pets']['name'][$idx]['documents']) &&
-                !empty($_FILES['pets']['name'][$idx]['documents'])
-            ) {
-                $filesForPet = [
-                    'name'     => (array)$_FILES['pets']['name'][$idx]['documents'],
-                    'tmp_name' => (array)$_FILES['pets']['tmp_name'][$idx]['documents'],
-                    'error'    => (array)$_FILES['pets']['error'][$idx]['documents'],
-                    'size'     => (array)$_FILES['pets']['size'][$idx]['documents'],
-                    'type'     => (array)$_FILES['pets']['type'][$idx]['documents'],
-                ];
-                saveDocuments($pdo, $new_pet_id, $filesForPet, 'Pet Document');
+            foreach ($pets as $idx => $pet) {
+                $weight  = (float)($pet['pet_weight'] ?? 0);
+                $tier_id = resolveTierId($pdo, $weight);
+
+                $pet_id_row = $pdo->query("SELECT NVL(MAX(PET_ID), 0) + 1 AS NEXT_ID FROM PET")->fetch(PDO::FETCH_ASSOC);
+                $new_pet_id = (int) $pet_id_row['NEXT_ID'];
+
+                $pet_stmt = $pdo->prepare(
+                    "INSERT INTO PET (
+                        PET_ID, PET_NAME, SEX, WEIGHT, FEEDING_TIME,
+                        FEEDING_PORTION, OWNER_ID, CATEGORY_ID, TIER_ID,
+                        BEHAVIORAL_NOTES, STATUS
+                     ) VALUES (
+                        :pid, :name, :sex, :weight, :ftime,
+                        :fportion, :oid, :cid, :tid,
+                        :notes, 'Active'
+                     )"
+                );
+                $pet_stmt->execute([
+                    'pid'      => $new_pet_id,
+                    'name'     => $pet['pet_name'],
+                    'sex'      => ucfirst($pet['sex'] ?? 'Male'),
+                    'weight'   => $weight,
+                    'ftime'    => $pet['feeding_time'] ?? null,
+                    'fportion' => $pet['portion']      ?? null,
+                    'oid'      => $owner_id,
+                    'cid'      => (int)($pet['category_id'] ?? 1),
+                    'tid'      => $tier_id,
+                    'notes'    => 'Initial registration onboarding.',
+                ]);
+
+                // Save uploaded documents for this pet
+                if (
+                    isset($_FILES['pets']['name'][$idx]['documents']) &&
+                    !empty($_FILES['pets']['name'][$idx]['documents'][0])
+                ) {
+                    $filesForPet = [
+                        'name'     => (array)$_FILES['pets']['name'][$idx]['documents'],
+                        'tmp_name' => (array)$_FILES['pets']['tmp_name'][$idx]['documents'],
+                        'error'    => (array)$_FILES['pets']['error'][$idx]['documents'],
+                        'size'     => (array)$_FILES['pets']['size'][$idx]['documents'],
+                        'type'     => (array)$_FILES['pets']['type'][$idx]['documents'],
+                    ];
+                    saveDocuments($pdo, $new_pet_id, $filesForPet, 'Pet Document');
+                }
             }
-        }
 
-        $pdo->commit();
-        echo json_encode(['success' => true, 'message' => 'Owner and pet successfully registered.']);
-        exit();
+            $pdo->commit();
+            echo json_encode(['success' => true, 'message' => 'Owner and pet successfully registered.']);
+            exit();
 
-    } catch (Exception $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        if (strpos($e->getMessage(), 'ORA-00001') !== false) {
-            echo json_encode(['success' => false, 'message' => 'Error: The contact number provided is already registered.']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Database Error: ' . $e->getMessage()]);
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            if (strpos($e->getMessage(), 'ORA-00001') !== false) {
+                echo json_encode(['success' => false, 'message' => 'Error: The contact number provided is already registered.']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Database Error: ' . $e->getMessage()]);
+            }
+            exit();
         }
-        exit();
     }
-}
 
     // =========================================================================
-    // GET OWNER DATA  (unchanged logic, no file handling needed)
+    // GET OWNER DATA
     // =========================================================================
     if ($action === 'get_owner_data') {
         header('Content-Type: application/json');
@@ -224,61 +243,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
-      // Replace the $pets_stmt query inside get_owner_data with this:
-$pets_stmt = $pdo->prepare("
-    SELECT P.PET_ID, P.PET_NAME, P.CATEGORY_ID, P.WEIGHT, P.SEX,
-           P.FEEDING_TIME, P.FEEDING_PORTION,
-           B.CONSENT_FORM_SIGNED, B.NEXGARD_VERIFIED,
-           B.OCULAR_EXAM_PASSED,  B.VETCARD_VERIFIED
-    FROM PET P
-    LEFT JOIN (
-        SELECT PET_ID, CONSENT_FORM_SIGNED, NEXGARD_VERIFIED,
-               OCULAR_EXAM_PASSED, VETCARD_VERIFIED
-        FROM BOOKING
-        WHERE (PET_ID, BOOKING_ID) IN (
-            SELECT PET_ID, MAX(BOOKING_ID)
-            FROM BOOKING
-            GROUP BY PET_ID
-        )
-    ) B ON P.PET_ID = B.PET_ID
-    WHERE P.OWNER_ID = :id
-    ORDER BY P.PET_NAME
-");
-$pets_stmt->execute(['id' => $owner_id]);
-$pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Fetch pets with latest booking verification states
+        $pets_stmt = $pdo->prepare("
+            SELECT P.PET_ID, P.PET_NAME, P.CATEGORY_ID, P.WEIGHT, P.SEX,
+                   P.FEEDING_TIME, P.FEEDING_PORTION,
+                   NVL(B.CONSENT_FORM_SIGNED, 'No') AS CONSENT_FORM_SIGNED,
+                   NVL(B.NEXGARD_VERIFIED,    'No') AS NEXGARD_VERIFIED,
+                   NVL(B.OCULAR_EXAM_PASSED,  'No') AS OCULAR_EXAM_PASSED,
+                   NVL(B.VETCARD_VERIFIED,     'No') AS VETCARD_VERIFIED
+            FROM PET P
+            LEFT JOIN (
+                SELECT PET_ID, CONSENT_FORM_SIGNED, NEXGARD_VERIFIED,
+                       OCULAR_EXAM_PASSED, VETCARD_VERIFIED
+                FROM BOOKING
+                WHERE (PET_ID, BOOKING_ID) IN (
+                    SELECT PET_ID, MAX(BOOKING_ID)
+                    FROM BOOKING
+                    GROUP BY PET_ID
+                )
+            ) B ON P.PET_ID = B.PET_ID
+            WHERE P.OWNER_ID = :id
+            AND P.STATUS = 'Active'
+            ORDER BY P.PET_NAME
+        ");
+        $pets_stmt->execute(['id' => $owner_id]);
+        $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Fetch documents for all pets of this owner — normalise filepath slashes
         $docs_stmt = $pdo->prepare("
-            SELECT pd.DOC_ID, pd.DOCUMENT_TYPE, pd.FILEPATH, pd.UPLOAD_DATE, pd.PET_ID,
-                   dd.VERIFICATION_STATUS, dd.DATE_VERIFIED
+            SELECT pd.DOC_ID,
+                   pd.DOCUMENT_TYPE,
+                   REPLACE(pd.FILEPATH, '\\', '/') AS FILEPATH,
+                   TO_CHAR(pd.UPLOAD_DATE, 'YYYY-MM-DD') AS UPLOAD_DATE,
+                   pd.PET_ID,
+                   dd.VERIFICATION_STATUS,
+                   TO_CHAR(dd.DATE_VERIFIED, 'YYYY-MM-DD') AS DATE_VERIFIED
             FROM PET_DOCUMENT pd
-            LEFT JOIN DOCUMENT_DETAILS dd ON pd.DOC_ID = dd.DOC_ID AND pd.PET_ID = dd.PET_ID
-            WHERE pd.PET_ID IN (SELECT PET_ID FROM PET WHERE OWNER_ID = :id)
+            LEFT JOIN DOCUMENT_DETAILS dd
+                   ON pd.DOC_ID = dd.DOC_ID AND pd.PET_ID = dd.PET_ID
+            WHERE pd.PET_ID IN (
+                SELECT PET_ID FROM PET WHERE OWNER_ID = :id AND STATUS = 'Active'
+            )
             ORDER BY pd.UPLOAD_DATE DESC
         ");
         $docs_stmt->execute(['id' => $owner_id]);
         $documents = $docs_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        echo json_encode(['success' => true, 'data' => ['owner' => $owner, 'pets' => $pets, 'documents' => $documents]]);
+        echo json_encode([
+            'success' => true,
+            'data'    => [
+                'owner'     => $owner,
+                'pets'      => $pets,
+                'documents' => $documents,
+            ],
+        ]);
         exit();
     }
 
     // =========================================================================
-    // UPDATE OWNER + PET  — now handles new document uploads + Tier update
+    // UPDATE OWNER + PET
+    // Verification checkbox values (consent, nexgard, ocular, vetcard) are
+    // stored on the BOOKING table.  On update we persist them to the pet's
+    // MOST RECENT booking so the state is preserved for display.  If no
+    // booking exists for this pet yet we skip the booking update gracefully.
     // =========================================================================
     if ($action === 'update_owner_pet') {
         header('Content-Type: application/json');
 
-        $owner_id   = filter_input(INPUT_POST, 'owner_id',    FILTER_VALIDATE_INT);
-        $pet_id     = filter_input(INPUT_POST, 'pet_id',      FILTER_VALIDATE_INT);
-        $first_name = trim($_POST['first_name']      ?? '');
-        $last_name  = trim($_POST['last_name']       ?? '');
-        $contact    = trim($_POST['contact_number']  ?? '');
-        $pet_name   = trim($_POST['pet_name']        ?? '');
-        $category_id= filter_input(INPUT_POST, 'category_id', FILTER_VALIDATE_INT);
-        $weight     = filter_input(INPUT_POST, 'weight',       FILTER_VALIDATE_FLOAT);
-        $sex        = trim($_POST['sex']             ?? '');
-        $feeding_time = trim($_POST['feeding_time']  ?? '');
-        $portion    = trim($_POST['portion']         ?? '');
+        $owner_id    = filter_input(INPUT_POST, 'owner_id',    FILTER_VALIDATE_INT);
+        $pet_id      = filter_input(INPUT_POST, 'pet_id',      FILTER_VALIDATE_INT);
+        $first_name  = trim($_POST['first_name']     ?? '');
+        $last_name   = trim($_POST['last_name']      ?? '');
+        $contact     = trim($_POST['contact_number'] ?? '');
+        $pet_name    = trim($_POST['pet_name']       ?? '');
+        $category_id = filter_input(INPUT_POST, 'category_id', FILTER_VALIDATE_INT);
+        $weight      = filter_input(INPUT_POST, 'weight',       FILTER_VALIDATE_FLOAT);
+        $sex         = trim($_POST['sex']            ?? '');
+        $feeding_time= trim($_POST['feeding_time']   ?? '');
+        $portion     = trim($_POST['portion']        ?? '');
+
+        // Normalise checkbox values — unchecked boxes send nothing, so default to 'No'
+        $consent  = normaliseYesNo($_POST['consent_form']  ?? null);
+        $nexgard  = normaliseYesNo($_POST['nexgard']       ?? null);
+        $ocular   = normaliseYesNo($_POST['ocular_exam']   ?? null);
+        $vetcard  = normaliseYesNo($_POST['vetcard']       ?? null);
 
         if (!$owner_id || !$first_name || !$last_name || !$contact ||
             !$pet_id || !$pet_name || !$category_id || !$weight || !$sex ||
@@ -299,32 +347,61 @@ $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
             // Resolve tier from new weight
             $tier_id = resolveTierId($pdo, $weight);
 
-            // Update pet (including Tier_ID so pet_profile page shows correct tier)
+            // Update pet
             $pdo->prepare(
                 "UPDATE PET SET PET_NAME = :pet_name, CATEGORY_ID = :category_id,
                  WEIGHT = :weight, SEX = :sex, FEEDING_TIME = :feeding_time,
                  FEEDING_PORTION = :portion, TIER_ID = :tier_id
                  WHERE PET_ID = :pet_id AND OWNER_ID = :owner_id"
             )->execute([
-                'pet_name'    => $pet_name,
-                'category_id' => $category_id,
-                'weight'      => $weight,
-                'sex'         => ucfirst($sex),
-                'feeding_time'=> $feeding_time,
-                'portion'     => $portion,
-                'tier_id'     => $tier_id,
-                'pet_id'      => $pet_id,
-                'owner_id'    => $owner_id,
+                'pet_name'     => $pet_name,
+                'category_id'  => $category_id,
+                'weight'       => $weight,
+                'sex'          => ucfirst($sex),
+                'feeding_time' => $feeding_time,
+                'portion'      => $portion,
+                'tier_id'      => $tier_id,
+                'pet_id'       => $pet_id,
+                'owner_id'     => $owner_id,
             ]);
+
+            // Persist verification checkboxes to the pet's most recent booking.
+            // We do NOT touch bookings that are Cancelled or Completed — only the
+            // latest active/pending/confirmed booking, if any.
+            $bk_stmt = $pdo->prepare(
+                "SELECT BOOKING_ID FROM BOOKING
+                 WHERE PET_ID = :pid
+                 ORDER BY BOOKING_ID DESC
+                 FETCH FIRST 1 ROWS ONLY"
+            );
+            $bk_stmt->execute(['pid' => $pet_id]);
+            $latestBooking = $bk_stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($latestBooking) {
+                $pdo->prepare(
+                    "UPDATE BOOKING
+                     SET CONSENT_FORM_SIGNED = :consent,
+                         NEXGARD_VERIFIED    = :nexgard,
+                         OCULAR_EXAM_PASSED  = :ocular,
+                         VETCARD_VERIFIED    = :vetcard
+                     WHERE BOOKING_ID = :bid"
+                )->execute([
+                    'consent' => $consent,
+                    'nexgard' => $nexgard,
+                    'ocular'  => $ocular,
+                    'vetcard' => $vetcard,
+                    'bid'     => (int)$latestBooking['BOOKING_ID'],
+                ]);
+            }
+            // If no booking exists for this pet yet, the checkbox values are noted
+            // in the UI only — they will be set when the first booking is created.
 
             // Save any newly uploaded documents
             if (
                 isset($_FILES['new_document']) &&
                 !empty($_FILES['new_document']['name'][0])
             ) {
-                // Normalise: $_FILES['new_document'] is already in standard multi-file shape
                 $filesArr = $_FILES['new_document'];
-                // Make sure it's always array-of-files shape
                 if (!is_array($filesArr['name'])) {
                     $filesArr['name']     = [$filesArr['name']];
                     $filesArr['tmp_name'] = [$filesArr['tmp_name']];
@@ -347,7 +424,7 @@ $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     // =========================================================================
-    // DEACTIVATE OWNER (admin only soft delete — unchanged)
+    // DEACTIVATE OWNER (admin only soft delete)
     // =========================================================================
     if ($action === 'delete_owner') {
         header('Content-Type: application/json');
@@ -387,7 +464,7 @@ $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     // =========================================================================
-    // REACTIVATE OWNER (admin only — unchanged)
+    // REACTIVATE OWNER (admin only)
     // =========================================================================
     if ($action === 'reactivate_owner') {
         header('Content-Type: application/json');
@@ -670,7 +747,7 @@ $role = $_SESSION['role'] ?? 'Staff';
         .doc-empty { padding: 20px; text-align: center; color: rgba(34,34,34,0.35); font-size: 0.88rem; background: var(--beige); border-radius: 12px; border: 1.5px dashed #e2d9ce; }
         .doc-loading { padding: 20px; text-align: center; color: rgba(34,34,34,0.4); font-size: 0.88rem; }
 
-        /* ── NOTE BANNER (explains checkbox context) ── */
+        /* ── NOTE BANNER ── */
         .info-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 0.82rem; margin-bottom: 16px; }
         .info-note svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; }
 
@@ -901,7 +978,6 @@ $role = $_SESSION['role'] ?? 'Staff';
             </button>
         </div>
         <div class="modal-body">
-            <!-- FIX: enctype="multipart/form-data" is required for file uploads -->
             <form id="createOwnerForm" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="create_owner_pet">
 
@@ -925,119 +1001,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                 <div class="modal-section-label">Pet Information</div>
 
                 <div id="modalPetContainer">
-                    <div class="pet-entry">
-                        <div class="pet-entry-header">Pet #1</div>
-
-                        <div class="field-group">
-                            <label class="field-label">Pet Name</label>
-                            <input type="text" name="pets[0][pet_name]" placeholder="e.g. Buddy" required>
-                        </div>
-
-                        <div class="grid-2" style="margin-bottom:16px;">
-                            <div class="field-group">
-                                <label class="field-label">Species / Category</label>
-                                <select name="pets[0][category_id]" required>
-                                    <option value="">Select category</option>
-                                    <?php foreach ($categories as $category): ?>
-                                    <option value="<?php echo $category['CATEGORY_ID']; ?>"><?php echo htmlspecialchars($category['CATEGORY_NAME']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="field-group">
-                                <label class="field-label">Weight (kg)</label>
-                                <input type="number" step="0.1" name="pets[0][pet_weight]" placeholder="e.g. 12.5" required>
-                            </div>
-                        </div>
-
-                        <div class="field-group" style="margin-bottom:16px;">
-                            <label class="field-label">Sex</label>
-                            <div class="radio-group">
-                                <label class="radio-label"><input type="radio" name="pets[0][sex]" value="Male" checked> Male</label>
-                                <label class="radio-label"><input type="radio" name="pets[0][sex]" value="Female"> Female</label>
-                            </div>
-                        </div>
-
-                        <div class="grid-2" style="margin-bottom:16px;">
-                            <div class="field-group">
-                                <label class="field-label">Feeding Time</label>
-                                <input type="text" name="pets[0][feeding_time]" placeholder="e.g. BID / 08:00" required>
-                            </div>
-                            <div class="field-group">
-                                <label class="field-label">Portion</label>
-                                <input type="text" name="pets[0][portion]" placeholder="e.g. 1 cup" required>
-                            </div>
-                        </div>
-
-                        <div class="field-group">
-                            <label class="field-label">Attach Pet Documents</label>
-                            <div class="file-upload-wrap">
-                                <label class="file-upload-label" id="fileLabel_0" for="petDoc_0">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                    <span class="file-name">Upload Vetcard, Waiver, or Consent Form&hellip;</span>
-                                </label>
-                                <!-- name uses array notation so PHP populates $_FILES['pets'][...] -->
-                                <input type="file" name="pets[0][documents][]" id="petDoc_0"
-                                       accept=".pdf,.jpg,.jpeg,.png" multiple
-                                       onchange="updateFileLabel(this, 'fileLabel_0')">
-                            </div>
-                            <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; you may select multiple files. Documents will be saved as <strong>Pending</strong> verification.</span>
-                        </div>
-
-                        <!-- Note: Ocular Exam / Consent / NexGard live on BOOKING, not PET.
-                             These checkboxes are shown for UX context only; staff will
-                             tick them on the booking form when the pet is actually checked in. -->
-                       <div class="field-group" style="margin-top: 8px; margin-bottom: 0;">
-    <label class="field-label">Check-In Verifications</label>
-    <div class="check-group">
-
-        <label class="check-label" onclick="toggleCheck(this)">
-            <input type="checkbox" name="pets[0][consent_form]" value="Yes">
-            <span class="check-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            </span>
-            <span class="check-text-wrap">
-                <span class="check-title">Consent Form Signed</span>
-                <span class="check-desc">Owner has signed the boarding consent/waiver form.</span>
-            </span>
-        </label>
-
-        <label class="check-label" onclick="toggleCheck(this)">
-            <input type="checkbox" name="pets[0][nexgard]" value="Yes">
-            <span class="check-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </span>
-            <span class="check-text-wrap">
-                <span class="check-title">NexGard Verified</span>
-                <span class="check-desc">NexGard anti-tick/flea treatment administered or confirmed.</span>
-            </span>
-        </label>
-
-        <label class="check-label" onclick="toggleCheck(this)">
-            <input type="checkbox" name="pets[0][ocular_exam]" value="Yes">
-            <span class="check-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            </span>
-            <span class="check-text-wrap">
-                <span class="check-title">Ocular Exam Passed</span>
-                <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
-            </span>
-        </label>
-
-        <label class="check-label" onclick="toggleCheck(this)">
-            <input type="checkbox" name="pets[0][vetcard]" value="Yes">
-            <span class="check-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            </span>
-            <span class="check-text-wrap">
-                <span class="check-title">Vet Card Verified</span>
-                <span class="check-desc">Vaccination records checked and confirmed.</span>
-            </span>
-        </label>
-
-    </div>
-    <span class="file-hint" style="margin-top: 8px;">These will be saved on the booking record when the first booking is created for this pet.</span>
-</div>
-                    </div>
+                    <!-- Pet entries are injected by buildPetEntry() below -->
                 </div>
 
                 <button type="button" id="modalAddPetBtn" class="btn-add-pet" style="margin-bottom:16px;">
@@ -1070,7 +1034,6 @@ $role = $_SESSION['role'] ?? 'Staff';
             </button>
         </div>
         <div class="modal-body">
-            <!-- FIX: enctype="multipart/form-data" required for new document uploads -->
             <form id="editOwnerForm" enctype="multipart/form-data">
                 <input type="hidden" id="modalOwnerId" name="owner_id">
                 <input type="hidden" id="modalPetId"   name="pet_id">
@@ -1141,8 +1104,8 @@ $role = $_SESSION['role'] ?? 'Staff';
                     </div>
                 </div>
 
+                <!-- ── Uploaded Documents ── -->
                 <div class="modal-section-label">Uploaded Documents</div>
-
                 <div id="editDocumentsList">
                     <div class="doc-loading">Select an owner above to load documents.</div>
                 </div>
@@ -1154,63 +1117,71 @@ $role = $_SESSION['role'] ?? 'Staff';
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             <span class="file-name">Attach new document&hellip;</span>
                         </label>
-                        <!-- FIX: name="new_document[]" matches what the PHP handler reads -->
                         <input type="file" name="new_document[]" id="editPetDoc"
                                accept=".pdf,.jpg,.jpeg,.png" multiple
                                onchange="updateFileLabel(this, 'editFileLabel')">
                     </div>
                     <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; saved as <strong>Pending</strong> verification.</span>
                 </div>
-                <!-- ADD this block in the edit modal, after the upload field-group and before #modalAlert -->
-<div class="modal-section-label" style="margin-top: 8px;">Check-In Verifications</div>
 
-<div class="check-group" style="margin-bottom: 16px;">
+                <!-- ── Check-In Verifications (persisted to most recent BOOKING row) ── -->
+                <div class="modal-section-label" style="margin-top:8px;">Check-In Verifications</div>
 
-    <label class="check-label" id="editCheckConsent" onclick="toggleCheck(this)">
-        <input type="checkbox" id="modalConsentForm" name="consent_form" value="Yes">
-        <span class="check-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        </span>
-        <span class="check-text-wrap">
-            <span class="check-title">Consent Form Signed</span>
-            <span class="check-desc">Owner has signed the boarding consent/waiver form.</span>
-        </span>
-    </label>
+                <div class="info-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    These values reflect the pet's <strong>most recent booking</strong> record. If no booking exists yet, changes here will be applied when the first booking is created.
+                </div>
 
-    <label class="check-label" id="editCheckNexgard" onclick="toggleCheck(this)">
-        <input type="checkbox" id="modalNexgard" name="nexgard" value="Yes">
-        <span class="check-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        </span>
-        <span class="check-text-wrap">
-            <span class="check-title">NexGard Verified</span>
-            <span class="check-desc">NexGard anti-tick/flea treatment administered or confirmed.</span>
-        </span>
-    </label>
+                <div class="check-group" style="margin-bottom:16px;">
+                    <label class="check-label" id="editCheckConsent">
+                        <input type="checkbox" id="modalConsentForm" name="consent_form" value="Yes"
+                               onchange="syncCheckLabel(this)">
+                        <span class="check-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </span>
+                        <span class="check-text-wrap">
+                            <span class="check-title">Consent Form Signed</span>
+                            <span class="check-desc">Owner has signed the boarding consent/waiver form.</span>
+                        </span>
+                    </label>
 
-    <label class="check-label" id="editCheckOcular" onclick="toggleCheck(this)">
-        <input type="checkbox" id="modalOcularExam" name="ocular_exam" value="Yes">
-        <span class="check-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </span>
-        <span class="check-text-wrap">
-            <span class="check-title">Ocular Exam Passed</span>
-            <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
-        </span>
-    </label>
+                    <label class="check-label" id="editCheckNexgard">
+                        <input type="checkbox" id="modalNexgard" name="nexgard" value="Yes"
+                               onchange="syncCheckLabel(this)">
+                        <span class="check-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        </span>
+                        <span class="check-text-wrap">
+                            <span class="check-title">NexGard Verified</span>
+                            <span class="check-desc">NexGard anti-tick/flea treatment administered or confirmed.</span>
+                        </span>
+                    </label>
 
-    <label class="check-label" id="editCheckVetcard" onclick="toggleCheck(this)">
-        <input type="checkbox" id="modalVetcard" name="vetcard" value="Yes">
-        <span class="check-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        </span>
-        <span class="check-text-wrap">
-            <span class="check-title">Vet Card Verified</span>
-            <span class="check-desc">Vaccination records checked and confirmed.</span>
-        </span>
-    </label>
+                    <label class="check-label" id="editCheckOcular">
+                        <input type="checkbox" id="modalOcularExam" name="ocular_exam" value="Yes"
+                               onchange="syncCheckLabel(this)">
+                        <span class="check-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </span>
+                        <span class="check-text-wrap">
+                            <span class="check-title">Ocular Exam Passed</span>
+                            <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
+                        </span>
+                    </label>
 
-</div>
+                    <label class="check-label" id="editCheckVetcard">
+                        <input type="checkbox" id="modalVetcard" name="vetcard" value="Yes"
+                               onchange="syncCheckLabel(this)">
+                        <span class="check-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </span>
+                        <span class="check-text-wrap">
+                            <span class="check-title">Vet Card Verified</span>
+                            <span class="check-desc">Vaccination records checked and confirmed.</span>
+                        </span>
+                    </label>
+                </div>
+
                 <div id="modalAlert" class="alert-wrap" style="display:none;"></div>
             </form>
         </div>
@@ -1225,290 +1196,440 @@ $role = $_SESSION['role'] ?? 'Staff';
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
-     JAVASCRIPT  (all logic preserved, encoding fix applied)
+     JAVASCRIPT
 ════════════════════════════════════════════════════════════ -->
 <script>
-    // ── Modal helpers ──────────────────────────────────────
-    function openModal(id) { document.getElementById(id).classList.add('open'); }
-    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+// ── PHP data passed to JS ──────────────────────────────────
+const PHP_CATEGORIES = <?php echo json_encode(array_values($categories)); ?>;
 
-    document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
-        overlay.addEventListener('click', function(e) { if (e.target === this) closeModal(this.id); });
+// ── Modal helpers ──────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+    overlay.addEventListener('click', function(e) { if (e.target === this) closeModal(this.id); });
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.open').forEach(function(m) { closeModal(m.id); });
+    }
+});
+
+// ── Alert helper ───────────────────────────────────────────
+function showAlert(wrapId, type, message) {
+    const wrap = document.getElementById(wrapId);
+    const icon = type === 'success'
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+    wrap.innerHTML = '<div class="alert alert-' + (type === 'success' ? 'success' : 'error') + '">' + icon + message + '</div>';
+    wrap.style.display = 'block';
+}
+
+// ── File label updater ─────────────────────────────────────
+function updateFileLabel(input, labelId) {
+    const label = document.getElementById(labelId);
+    if (!label) return;
+    const span = label.querySelector('.file-name');
+    if (input.files && input.files.length > 0) {
+        span.textContent = Array.from(input.files).map(f => f.name).join(', ');
+        label.style.borderColor = 'var(--orange)';
+        label.style.color = 'var(--orange)';
+    } else {
+        span.textContent = 'Upload Vetcard, Waiver, or Consent Form\u2026';
+        label.style.borderColor = '';
+        label.style.color = '';
+    }
+}
+
+// ── Checkbox visual sync ───────────────────────────────────
+// Called via onchange on each checkbox.  Keeps the .checked CSS class
+// on the parent .check-label in sync with the checkbox state.
+function syncCheckLabel(checkbox) {
+    const label = checkbox.closest('.check-label');
+    if (!label) return;
+    if (checkbox.checked) {
+        label.classList.add('checked');
+    } else {
+        label.classList.remove('checked');
+    }
+}
+
+// ── Programmatically set a checkbox + sync its label ──────
+function setCheckbox(checkboxEl, isChecked) {
+    checkboxEl.checked = isChecked;
+    syncCheckLabel(checkboxEl);
+}
+
+// ── Build a pet-entry card HTML string (used for create modal) ──
+// index  : integer position (0, 1, 2…)
+// isFirst: boolean — first card cannot be removed
+function buildPetEntry(index, isFirst) {
+    const catOptions = PHP_CATEGORIES.map(function(c) {
+        return '<option value="' + c.CATEGORY_ID + '">' + escHtml(c.CATEGORY_NAME) + '</option>';
+    }).join('');
+
+    const removeBtn = isFirst ? '' : `
+        <button type="button" class="btn-remove-pet" onclick="this.closest('.pet-entry').remove()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Remove
+        </button>`;
+
+    return `
+    <div class="pet-entry">
+        <div class="pet-entry-header">Pet #${index + 1}</div>
+        ${removeBtn}
+
+        <div class="field-group">
+            <label class="field-label">Pet Name</label>
+            <input type="text" name="pets[${index}][pet_name]" placeholder="e.g. Buddy" required>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:16px;">
+            <div class="field-group">
+                <label class="field-label">Species / Category</label>
+                <select name="pets[${index}][category_id]" required>
+                    <option value="">Select category</option>
+                    ${catOptions}
+                </select>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Weight (kg)</label>
+                <input type="number" step="0.1" name="pets[${index}][pet_weight]" placeholder="e.g. 12.5" required>
+            </div>
+        </div>
+
+        <div class="field-group" style="margin-bottom:16px;">
+            <label class="field-label">Sex</label>
+            <div class="radio-group">
+                <label class="radio-label"><input type="radio" name="pets[${index}][sex]" value="Male" checked> Male</label>
+                <label class="radio-label"><input type="radio" name="pets[${index}][sex]" value="Female"> Female</label>
+            </div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:16px;">
+            <div class="field-group">
+                <label class="field-label">Feeding Time</label>
+                <input type="text" name="pets[${index}][feeding_time]" placeholder="e.g. BID / 08:00" required>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Portion</label>
+                <input type="text" name="pets[${index}][portion]" placeholder="e.g. 1 cup" required>
+            </div>
+        </div>
+
+        <div class="field-group">
+            <label class="field-label">Attach Pet Documents</label>
+            <div class="file-upload-wrap">
+                <label class="file-upload-label" id="fileLabel_${index}" for="petDoc_${index}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span class="file-name">Upload Vetcard, Waiver, or Consent Form&hellip;</span>
+                </label>
+                <input type="file" name="pets[${index}][documents][]" id="petDoc_${index}"
+                       accept=".pdf,.jpg,.jpeg,.png" multiple
+                       onchange="updateFileLabel(this, 'fileLabel_${index}')">
+            </div>
+            <span class="file-hint">Accepted: PDF, JPG, PNG — you may select multiple files. Documents will be saved as <strong>Pending</strong> verification.</span>
+        </div>
+
+        <div class="field-group" style="margin-top:8px;margin-bottom:0;">
+            <label class="field-label">Check-In Verifications</label>
+            <div class="info-note" style="margin-bottom:10px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                These are noted for reference. They will be stored on the booking record when the first booking is created for this pet.
+            </div>
+            <div class="check-group">
+                <label class="check-label">
+                    <input type="checkbox" name="pets[${index}][consent_form]" value="Yes" onchange="syncCheckLabel(this)">
+                    <span class="check-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+                    <span class="check-text-wrap">
+                        <span class="check-title">Consent Form Signed</span>
+                        <span class="check-desc">Owner has signed the boarding consent/waiver form.</span>
+                    </span>
+                </label>
+                <label class="check-label">
+                    <input type="checkbox" name="pets[${index}][nexgard]" value="Yes" onchange="syncCheckLabel(this)">
+                    <span class="check-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
+                    <span class="check-text-wrap">
+                        <span class="check-title">NexGard Verified</span>
+                        <span class="check-desc">NexGard anti-tick/flea treatment administered or confirmed.</span>
+                    </span>
+                </label>
+                <label class="check-label">
+                    <input type="checkbox" name="pets[${index}][ocular_exam]" value="Yes" onchange="syncCheckLabel(this)">
+                    <span class="check-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+                    <span class="check-text-wrap">
+                        <span class="check-title">Ocular Exam Passed</span>
+                        <span class="check-desc">Pet passed visual health inspection upon arrival.</span>
+                    </span>
+                </label>
+                <label class="check-label">
+                    <input type="checkbox" name="pets[${index}][vetcard]" value="Yes" onchange="syncCheckLabel(this)">
+                    <span class="check-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
+                    <span class="check-text-wrap">
+                        <span class="check-title">Vet Card Verified</span>
+                        <span class="check-desc">Vaccination records checked and confirmed.</span>
+                    </span>
+                </label>
+            </div>
+            <span class="file-hint" style="margin-top:8px;">These will be saved on the booking record when the first booking is created for this pet.</span>
+        </div>
+    </div>`;
+}
+
+// Simple HTML escape helper used inside JS template literals
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ── Render document list in edit modal ─────────────────────
+function renderDocuments(documents, currentPetId) {
+    const container = document.getElementById('editDocumentsList');
+    const petDocs   = documents.filter(d => String(d.PET_ID) === String(currentPetId));
+
+    if (petDocs.length === 0) {
+        container.innerHTML = '<div class="doc-empty">No documents uploaded for this pet yet.</div>';
+        return;
+    }
+
+    let html = '<div class="doc-list">';
+    petDocs.forEach(function(doc) {
+        const status      = doc.VERIFICATION_STATUS || 'none';
+        const statusLower = status.toLowerCase();
+        const validStatuses = ['approved', 'pending', 'rejected'];
+        const badgeClass  = 'doc-badge-' + (validStatuses.includes(statusLower) ? statusLower : 'none');
+        const statusLabel = status === 'none' ? 'Unverified' : status;
+        const dotColor    = statusLower === 'approved' ? '#22c55e'
+                          : statusLower === 'pending'  ? '#f59e0b'
+                          : statusLower === 'rejected' ? '#ef4444'
+                          : '#94a3b8';
+
+        // Normalise filepath: ensure it starts with / and uses forward slashes
+        let filepath = (doc.FILEPATH || '').replace(/\\/g, '/');
+        if (filepath && !filepath.startsWith('/') && !filepath.startsWith('http')) {
+            filepath = '/' + filepath;
+        }
+        if (!filepath) filepath = '#';
+
+        const uploadDate   = doc.UPLOAD_DATE   || '—';
+        const verifiedDate = doc.DATE_VERIFIED  ? ' &middot; Verified: ' + doc.DATE_VERIFIED : '';
+
+        html += `<div class="doc-item">
+            <div class="doc-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            </div>
+            <div class="doc-info">
+                <div class="doc-type">${escHtml(doc.DOCUMENT_TYPE || 'Document')}</div>
+                <div class="doc-meta">Uploaded: ${uploadDate}${verifiedDate}</div>
+            </div>
+            <span class="doc-badge ${badgeClass}">
+                <svg style="width:7px;height:7px;fill:${dotColor};flex-shrink:0;" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>
+                ${escHtml(statusLabel)}
+            </span>
+            <a href="${escHtml(filepath)}" target="_blank" rel="noopener noreferrer" class="doc-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                View
+            </a>
+        </div>`;
     });
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            document.querySelectorAll('.modal-overlay.open').forEach(function(m) { closeModal(m.id); });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOM READY
+// ─────────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    const ownerSelect = document.getElementById('modalPetSelect');
+    let ownerPets    = [];
+    let allDocuments = [];
+
+    // ── Seed the create modal with Pet #1 on load ──────────
+    const petContainer = document.getElementById('modalPetContainer');
+    petContainer.innerHTML = buildPetEntry(0, true);
+
+    // ── "Add Another Pet" ──────────────────────────────────
+    document.getElementById('modalAddPetBtn').addEventListener('click', function() {
+        const currentCount = petContainer.querySelectorAll('.pet-entry').length;
+        petContainer.insertAdjacentHTML('beforeend', buildPetEntry(currentCount, false));
+    });
+
+    // ── CREATE: submit via FormData ────────────────────────
+    document.getElementById('submitNewOwnerBtn').addEventListener('click', function() {
+        const form = document.getElementById('createOwnerForm');
+        if (!form.checkValidity()) { form.reportValidity(); return; }
+
+        const formData = new FormData(form);
+
+        fetch('owner.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('createModalAlert', 'success', data.message);
+                setTimeout(() => location.reload(), 1200);
+            } else {
+                showAlert('createModalAlert', 'error', data.message);
+            }
+        })
+        .catch(error => {
+            showAlert('createModalAlert', 'error', 'Registration failed. Please try again.');
+            console.error(error);
+        });
+    });
+
+    // ── Edit button wiring ─────────────────────────────────
+    document.querySelectorAll('.edit-owner-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            loadOwnerData(this.getAttribute('data-owner-id'));
+        });
+    });
+
+    // ── Deactivate button wiring ───────────────────────────
+    document.querySelectorAll('.delete-owner-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const ownerId = this.getAttribute('data-owner-id');
+            if (!confirm('Are you sure you want to deactivate this owner and all their pet profiles? This will archive their records.')) return;
+            const fd = new FormData();
+            fd.append('action', 'delete_owner');
+            fd.append('owner_id', ownerId);
+            fetch('owner.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => { alert(data.message); if (data.success) location.reload(); })
+            .catch(() => alert('An error occurred during deactivation. Please try again.'));
+        });
+    });
+
+    // ── Reactivate button wiring ───────────────────────────
+    document.querySelectorAll('.reactivate-owner-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const ownerId = this.getAttribute('data-owner-id');
+            if (!confirm('Reactivate this owner and all their pet profiles?')) return;
+            const fd = new FormData();
+            fd.append('action', 'reactivate_owner');
+            fd.append('owner_id', ownerId);
+            fetch('owner.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => { alert(data.message); if (data.success) location.reload(); })
+            .catch(() => alert('An error occurred. Please try again.'));
+        });
+    });
+
+    // ── Pet select change → refresh fields + docs + checkboxes ──
+    ownerSelect.addEventListener('change', function() {
+        const selectedPet = ownerPets.find(p => String(p.PET_ID) === this.value);
+        if (selectedPet) {
+            document.getElementById('modalPetId').value = selectedPet.PET_ID;
+            fillPetFields(selectedPet);
+            renderDocuments(allDocuments, selectedPet.PET_ID);
         }
     });
 
-    // ── Alert helper ───────────────────────────────────────
-    function showAlert(wrapId, type, message) {
-        var wrap = document.getElementById(wrapId);
-        var icon = type === 'success'
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-        wrap.innerHTML = '<div class="alert alert-' + (type === 'success' ? 'success' : 'error') + '">' + icon + message + '</div>';
-        wrap.style.display = 'block';
-    }
+    // ── EDIT: submit via FormData ──────────────────────────
+    document.getElementById('saveOwnerPetBtn').addEventListener('click', function() {
+        const form = document.getElementById('editOwnerForm');
+        if (!form.checkValidity()) { form.reportValidity(); return; }
 
-    // ── File label updater ─────────────────────────────────
-    function updateFileLabel(input, labelId) {
-        var label = document.getElementById(labelId);
-        if (!label) return;
-        var span = label.querySelector('.file-name');
-        if (input.files && input.files.length > 0) {
-            span.textContent = Array.from(input.files).map(function(f) { return f.name; }).join(', ');
-            label.style.borderColor = 'var(--orange)';
-            label.style.color = 'var(--orange)';
-        } else {
-            span.textContent = 'Upload Vetcard, Waiver, or Consent Form\u2026';
-            label.style.borderColor = '';
-            label.style.color = '';
-        }
-    }
+        const formData = new FormData(form);
+        formData.append('action', 'update_owner_pet');
 
-    // ── Render document list in edit modal ─────────────────
-    function renderDocuments(documents, currentPetId) {
-        var container = document.getElementById('editDocumentsList');
-        var petDocs = documents.filter(function(d) { return String(d.PET_ID) === String(currentPetId); });
-
-        if (petDocs.length === 0) {
-            container.innerHTML = '<div class="doc-empty">No documents uploaded for this pet yet.</div>';
-            return;
-        }
-
-        var html = '<div class="doc-list">';
-        petDocs.forEach(function(doc) {
-            var status = doc.VERIFICATION_STATUS || 'none';
-            var statusLower = status.toLowerCase();
-            var badgeClass = 'doc-badge-' + (['approved','pending','rejected'].includes(statusLower) ? statusLower : 'none');
-            var statusLabel = status === 'none' ? 'Unverified' : status;
-            var dotColor = statusLower === 'approved' ? '#22c55e' : statusLower === 'pending' ? '#f59e0b' : statusLower === 'rejected' ? '#ef4444' : '#94a3b8';
-            var uploadDate = doc.UPLOAD_DATE ? doc.UPLOAD_DATE.split('T')[0] : '—';
-            var verifiedDate = doc.DATE_VERIFIED ? doc.DATE_VERIFIED.split('T')[0] : '';
-
-            html += '<div class="doc-item">';
-            html +=   '<div class="doc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>';
-            html +=   '<div class="doc-info"><div class="doc-type">' + (doc.DOCUMENT_TYPE || 'Document') + '</div>';
-            html +=   '<div class="doc-meta">Uploaded: ' + uploadDate + (verifiedDate ? ' &middot; Verified: ' + verifiedDate : '') + '</div></div>';
-            html +=   '<span class="doc-badge ' + badgeClass + '"><svg style="width:7px;height:7px;fill:' + dotColor + ';flex-shrink:0;" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>' + statusLabel + '</span>';
-            html +=   '<a href="' + doc.FILEPATH + '" target="_blank" class="doc-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>View</a>';
-            html += '</div>';
-        });
-        html += '</div>';
-        container.innerHTML = html;
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        const ownerSelect = document.getElementById('modalPetSelect');
-        let ownerPets = [];
-        let allDocuments = [];
-
-        // ── "Add Another Pet" dynamic cloning ────────────────
-        document.getElementById('modalAddPetBtn').addEventListener('click', function() {
-            const petContainer = document.getElementById('modalPetContainer');
-            const petEntries = petContainer.querySelectorAll('.pet-entry');
-            const newIndex = petEntries.length;
-            const firstPet = petEntries[0];
-            const newPet = firstPet.cloneNode(true);
-
-            newPet.querySelector('.pet-entry-header').textContent = 'Pet #' + (newIndex + 1);
-
-            newPet.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], select, textarea').forEach(function(input) {
-                if (input.name) input.name = input.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
-                input.value = '';
-            });
-            newPet.querySelectorAll('input[type="radio"]').forEach(function(radio) {
-                if (radio.name) radio.name = radio.name.replace(/pets\[0\]/, 'pets[' + newIndex + ']');
-                radio.checked = radio.value === 'Male';
-            });
-
-            var fileInput = newPet.querySelector('input[type="file"]');
-            var fileLabel = newPet.querySelector('.file-upload-label');
-            if (fileInput && fileLabel) {
-                var newFileId   = 'petDoc_' + newIndex;
-                var newLabelId  = 'fileLabel_' + newIndex;
-                fileInput.name  = 'pets[' + newIndex + '][documents][]';
-                fileInput.id    = newFileId;
-                fileLabel.setAttribute('for', newFileId);
-                fileLabel.id    = newLabelId;
-                fileInput.setAttribute('onchange', "updateFileLabel(this, '" + newLabelId + "')");
-                var fileSpan = fileLabel.querySelector('.file-name');
-                if (fileSpan) fileSpan.textContent = 'Upload Vetcard, Waiver, or Consent Form\u2026';
-                fileLabel.style.borderColor = '';
-                fileLabel.style.color = '';
+        fetch('owner.php', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('modalAlert', 'success', data.message);
+                setTimeout(() => location.reload(), 1200);
+            } else {
+                showAlert('modalAlert', 'error', data.message);
             }
-
-            // Remove any existing remove button from clone, add fresh one
-            var existingRemove = newPet.querySelector('.btn-remove-pet');
-            if (existingRemove) existingRemove.remove();
-
-            const removeBtn = document.createElement('button');
-            removeBtn.type = 'button';
-            removeBtn.className = 'btn-remove-pet';
-            removeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg> Remove';
-            removeBtn.addEventListener('click', function() { newPet.remove(); });
-            newPet.appendChild(removeBtn);
-            petContainer.appendChild(newPet);
+        })
+        .catch(error => {
+            showAlert('modalAlert', 'error', 'Could not save changes. Please try again.');
+            console.error(error);
         });
+    });
 
-        // ── CREATE: submit via FormData (preserves files) ─────
-        document.getElementById('submitNewOwnerBtn').addEventListener('click', function() {
-            const form = document.getElementById('createOwnerForm');
-            if (!form.checkValidity()) { form.reportValidity(); return; }
+    // ── Load owner data via AJAX ───────────────────────────
+    function loadOwnerData(ownerId) {
+        document.getElementById('editDocumentsList').innerHTML = '<div class="doc-loading">Loading documents&hellip;</div>';
+        document.getElementById('modalAlert').style.display = 'none';
 
-            // FIX: use FormData directly — do NOT convert to URLSearchParams.
-            // URLSearchParams strips all file data; FormData sends multipart.
-            const formData = new FormData(form);
+        fetch('owner.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=get_owner_data&owner_id=' + encodeURIComponent(ownerId)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) { showAlert('modalAlert', 'error', data.message); return; }
 
-            fetch('owner.php', { method: 'POST', body: formData })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    showAlert('createModalAlert', 'success', data.message);
-                    setTimeout(() => location.reload(), 1200);
-                } else {
-                    showAlert('createModalAlert', 'error', data.message);
-                }
-            })
-            .catch(error => {
-                showAlert('createModalAlert', 'error', 'Registration failed. Please try again.');
-                console.error(error);
+            const owner = data.data.owner;
+            ownerPets    = data.data.pets      || [];
+            allDocuments = data.data.documents || [];
+
+            document.getElementById('modalOwnerId').value       = owner.OWNER_ID;
+            document.getElementById('modalOwnerCode').value     = 'OWN-' + String(owner.OWNER_ID).padStart(4, '0');
+            document.getElementById('modalFirstName').value     = owner.FIRST_NAME;
+            document.getElementById('modalLastName').value      = owner.LAST_NAME;
+            document.getElementById('modalContactNumber').value = owner.CONTACT_NUMBER;
+
+            // Populate pet select
+            ownerSelect.innerHTML = '';
+            ownerPets.forEach(pet => {
+                const opt = document.createElement('option');
+                opt.value       = pet.PET_ID;
+                opt.textContent = pet.PET_NAME;
+                ownerSelect.appendChild(opt);
             });
-        });
 
-        // ── Edit / Deactivate / Reactivate button wiring ─────
-        document.querySelectorAll('.edit-owner-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                loadOwnerData(this.getAttribute('data-owner-id'));
-            });
-        });
-
-        document.querySelectorAll('.delete-owner-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const ownerId = this.getAttribute('data-owner-id');
-                if (!confirm('Are you sure you want to deactivate this owner and all their pet profiles? This will archive their records.')) return;
-                const fd = new FormData();
-                fd.append('action', 'delete_owner');
-                fd.append('owner_id', ownerId);
-                fetch('owner.php', { method: 'POST', body: fd })
-                .then(r => r.json())
-                .then(data => { alert(data.message); if (data.success) location.reload(); })
-                .catch(() => alert('An error occurred during deactivation. Please try again.'));
-            });
-        });
-
-        document.querySelectorAll('.reactivate-owner-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const ownerId = this.getAttribute('data-owner-id');
-                if (!confirm('Reactivate this owner and all their pet profiles?')) return;
-                const fd = new FormData();
-                fd.append('action', 'reactivate_owner');
-                fd.append('owner_id', ownerId);
-                fetch('owner.php', { method: 'POST', body: fd })
-                .then(r => r.json())
-                .then(data => { alert(data.message); if (data.success) location.reload(); })
-                .catch(() => alert('An error occurred. Please try again.'));
-            });
-        });
-
-        // ── Pet select change → refresh fields + documents ───
-        ownerSelect.addEventListener('change', function() {
-            const selectedPet = ownerPets.find(p => String(p.PET_ID) === this.value);
-            if (selectedPet) {
-                fillPetFields(selectedPet);
-                // Sync hidden pet_id field with the newly selected pet
-                document.getElementById('modalPetId').value = selectedPet.PET_ID;
-                renderDocuments(allDocuments, selectedPet.PET_ID);
-            }
-        });
-
-        // ── EDIT: submit via FormData (preserves new file upload) ──
-        document.getElementById('saveOwnerPetBtn').addEventListener('click', function() {
-            const form = document.getElementById('editOwnerForm');
-            if (!form.checkValidity()) { form.reportValidity(); return; }
-
-            // FIX: FormData, not URLSearchParams — same reason as create
-            const formData = new FormData(form);
-            formData.append('action', 'update_owner_pet');
-
-            fetch('owner.php', { method: 'POST', body: formData })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    showAlert('modalAlert', 'success', data.message);
-                    setTimeout(() => location.reload(), 1200);
-                } else {
-                    showAlert('modalAlert', 'error', data.message);
-                }
-            })
-            .catch(error => {
-                showAlert('modalAlert', 'error', 'Could not save changes. Please try again.');
-                console.error(error);
-            });
-        });
-
-        function loadOwnerData(ownerId) {
-            document.getElementById('editDocumentsList').innerHTML = '<div class="doc-loading">Loading documents&hellip;</div>';
-
-            // get_owner_data doesn't upload files — URLSearchParams is fine here
-            fetch('owner.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'action=get_owner_data&owner_id=' + encodeURIComponent(ownerId)
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (!data.success) { showAlert('modalAlert', 'error', data.message); return; }
-
-                document.getElementById('modalAlert').style.display = 'none';
-                const owner = data.data.owner;
-                ownerPets    = data.data.pets      || [];
-                allDocuments = data.data.documents || [];
-
-                document.getElementById('modalOwnerId').value       = owner.OWNER_ID;
-                document.getElementById('modalOwnerCode').value     = 'OWN-' + String(owner.OWNER_ID).padStart(4, '0');
-                document.getElementById('modalFirstName').value     = owner.FIRST_NAME;
-                document.getElementById('modalLastName').value      = owner.LAST_NAME;
-                document.getElementById('modalContactNumber').value = owner.CONTACT_NUMBER;
-
-                ownerSelect.innerHTML = '';
-                ownerPets.forEach(pet => {
-                    const opt = document.createElement('option');
-                    opt.value = pet.PET_ID;
-                    opt.textContent = pet.PET_NAME;
-                    ownerSelect.appendChild(opt);
+            if (ownerPets.length > 0) {
+                ownerSelect.value = ownerPets[0].PET_ID;
+                document.getElementById('modalPetId').value = ownerPets[0].PET_ID;
+                fillPetFields(ownerPets[0]);
+                renderDocuments(allDocuments, ownerPets[0].PET_ID);
+            } else {
+                document.getElementById('modalPetId').value = '';
+                ['modalPetName','modalPetCategory','modalPetWeight','modalFeedingTime','modalPortion'].forEach(id => {
+                    document.getElementById(id).value = '';
                 });
+                document.getElementById('modalPetSex').value = 'Male';
+                resetAllCheckboxes();
+                document.getElementById('editDocumentsList').innerHTML = '<div class="doc-empty">No pets registered for this owner.</div>';
+            }
+        })
+        .catch(error => {
+            showAlert('modalAlert', 'error', 'Unable to load owner data.');
+            console.error(error);
+        });
+    }
 
-                if (ownerPets.length > 0) {
-                    ownerSelect.value = ownerPets[0].PET_ID;
-                    fillPetFields(ownerPets[0]);
-                    renderDocuments(allDocuments, ownerPets[0].PET_ID);
-                } else {
-                    document.getElementById('modalPetId').value = '';
-                    ['modalPetName','modalPetCategory','modalPetWeight','modalFeedingTime','modalPortion'].forEach(id => {
-                        document.getElementById(id).value = '';
-                    });
-                    document.getElementById('modalPetSex').value = 'Male';
-                    document.getElementById('editDocumentsList').innerHTML = '<div class="doc-empty">No pets registered for this owner.</div>';
-                }
-            })
-            .catch(error => {
-                showAlert('modalAlert', 'error', 'Unable to load owner data.');
-                console.error(error);
-            });
-        }
+    // ── Fill edit modal pet fields + restore checkbox states ──
+    function fillPetFields(pet) {
+        document.getElementById('modalPetId').value       = pet.PET_ID;
+        document.getElementById('modalPetName').value     = pet.PET_NAME;
+        document.getElementById('modalPetCategory').value = pet.CATEGORY_ID;
+        document.getElementById('modalPetWeight').value   = pet.WEIGHT;
+        document.getElementById('modalPetSex').value      = pet.SEX || 'Male';
+        document.getElementById('modalFeedingTime').value = pet.FEEDING_TIME  || '';
+        document.getElementById('modalPortion').value     = pet.FEEDING_PORTION || '';
 
-        function fillPetFields(pet) {
-            document.getElementById('modalPetId').value       = pet.PET_ID;
-            document.getElementById('modalPetName').value     = pet.PET_NAME;
-            document.getElementById('modalPetCategory').value = pet.CATEGORY_ID;
-            document.getElementById('modalPetWeight').value   = pet.WEIGHT;
-            document.getElementById('modalPetSex').value      = pet.SEX;
-            document.getElementById('modalFeedingTime').value = pet.FEEDING_TIME;
-            document.getElementById('modalPortion').value     = pet.FEEDING_PORTION;
-        }
-    });
+        // Restore verification checkbox states from the latest booking values
+        // The PHP query uses NVL(…,'No') so values are always 'Yes' or 'No'.
+        setCheckbox(document.getElementById('modalConsentForm'), pet.CONSENT_FORM_SIGNED === 'Yes');
+        setCheckbox(document.getElementById('modalNexgard'),     pet.NEXGARD_VERIFIED    === 'Yes');
+        setCheckbox(document.getElementById('modalOcularExam'),  pet.OCULAR_EXAM_PASSED  === 'Yes');
+        setCheckbox(document.getElementById('modalVetcard'),     pet.VETCARD_VERIFIED    === 'Yes');
+    }
+
+    // ── Reset all four checkboxes to unchecked ─────────────
+    function resetAllCheckboxes() {
+        ['modalConsentForm','modalNexgard','modalOcularExam','modalVetcard'].forEach(id => {
+            setCheckbox(document.getElementById(id), false);
+        });
+    }
+});
 </script>
 
 </body>
