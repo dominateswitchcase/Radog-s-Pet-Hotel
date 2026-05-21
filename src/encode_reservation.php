@@ -10,10 +10,108 @@ requireLogin();
 $role = $_SESSION['role'];
 
 // ════════════════════════════════════════════════════════════════
+// HELPER: normalise checkbox → 'Yes' | 'No'
+// ════════════════════════════════════════════════════════════════
+function normaliseYesNo(?string $val): string {
+    return ($val === 'Yes' || $val === '1' || $val === 'on') ? 'Yes' : 'No';
+}
+
+// ════════════════════════════════════════════════════════════════
+// HELPER: save uploaded documents and link them to the pet
+// Returns array of ['doc_id', 'filepath'] on success.
+// Throws on failure so the outer transaction rolls back.
+// ════════════════════════════════════════════════════════════════
+function saveDocuments(PDO $pdo, int $petId, array $files): array {
+    $saved = [];
+
+    // Build a flat file list from $_FILES multi-upload structure
+    $fileList = [];
+    if (!empty($files['name'][0])) {
+        for ($i = 0; $i < count($files['name']); $i++) {
+            if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+            $fileList[] = [
+                'name'     => $files['name'][$i],
+                'tmp_name' => $files['tmp_name'][$i],
+                'size'     => $files['size'][$i],
+            ];
+        }
+    }
+
+    if (empty($fileList)) return $saved;
+
+    $uploadDir = __DIR__ . '/../uploads/pet_docs/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    // Allowed MIME types
+    $allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+
+    foreach ($fileList as $file) {
+        // Validate size (max 5 MB)
+        if ($file['size'] > 5 * 1024 * 1024) {
+            throw new RuntimeException('File "' . htmlspecialchars($file['name']) . '" exceeds the 5 MB size limit.');
+        }
+
+        // Validate MIME
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime  = $finfo->file($file['tmp_name']);
+        if (!in_array($mime, $allowed, true)) {
+            throw new RuntimeException('File "' . htmlspecialchars($file['name']) . '" has an unsupported file type.');
+        }
+
+        // Generate a safe filename
+        $ext      = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $safe     = 'pet_' . $petId . '_' . uniqid('', true) . '.' . strtolower($ext);
+        $destPath = $uploadDir . $safe;
+        $dbPath   = '/uploads/pet_docs/' . $safe;
+
+        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+            throw new RuntimeException('Could not save file "' . htmlspecialchars($file['name']) . '" to disk.');
+        }
+
+        // Infer document type from extension
+        $docType = match(strtolower($ext)) {
+            'pdf'        => 'PDF Document',
+            'jpg', 'jpeg' => 'JPEG Image',
+            'png'        => 'PNG Image',
+            default      => 'Document',
+        };
+
+        // Get next Doc_ID
+        $idRow  = $pdo->query("SELECT NVL(MAX(DOC_ID), 0) + 1 FROM PET_DOCUMENT")->fetchColumn();
+        $docId  = (int) $idRow;
+
+        // Insert into PET_DOCUMENT
+        $ins = $pdo->prepare(
+            "INSERT INTO PET_DOCUMENT (DOC_ID, DOCUMENT_TYPE, FILEPATH, UPLOAD_DATE, PET_ID)
+             VALUES (:doc_id, :doc_type, :filepath, SYSDATE, :pet_id)"
+        );
+        $ins->execute([
+            'doc_id'   => $docId,
+            'doc_type' => $docType,
+            'filepath' => $dbPath,
+            'pet_id'   => $petId,
+        ]);
+
+        // Insert into DOCUMENT_DETAILS (status = Pending by default; staff can approve later)
+        $det = $pdo->prepare(
+            "INSERT INTO DOCUMENT_DETAILS (PET_ID, DOC_ID, VERIFICATION_STATUS, DATE_VERIFIED)
+             VALUES (:pet_id, :doc_id, 'Pending', SYSDATE)"
+        );
+        $det->execute(['pet_id' => $petId, 'doc_id' => $docId]);
+
+        $saved[] = ['doc_id' => $docId, 'filepath' => $dbPath];
+    }
+
+    return $saved;
+}
+
+// ════════════════════════════════════════════════════════════════
 // FORM PROCESSING
 // ════════════════════════════════════════════════════════════════
-$message      = '';
-$msg_type     = 'error'; // 'success' | 'error'
+$message  = '';
+$msg_type = 'error'; // 'success' | 'error'
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $owner_id         = filter_input(INPUT_POST, 'owner_id',         FILTER_VALIDATE_INT);
@@ -23,6 +121,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $check_out        = filter_input(INPUT_POST, 'check_out',        FILTER_SANITIZE_STRING);
     $instructions     = trim(filter_input(INPUT_POST, 'instructions', FILTER_SANITIZE_FULL_SPECIAL_CHARS));
     $today            = date('Y-m-d');
+
+    // Verification flags
+    $consent_signed   = normaliseYesNo($_POST['consent_form_signed']   ?? null);
+    $nexgard_verified = normaliseYesNo($_POST['nexgard_verified']       ?? null);
+    $ocular_passed    = normaliseYesNo($_POST['ocular_exam_passed']     ?? null);
+    $vetcard_verified = normaliseYesNo($_POST['vetcard_verified']       ?? null);
 
     // Collect selected services
     $selected_services = $_POST['services'] ?? [];
@@ -67,14 +171,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (empty($message)) {
                     try {
                         $pdo->beginTransaction();
-                        $id_q      = $pdo->query("SELECT NVL(MAX(BOOKING_ID),0)+1 FROM BOOKING");
+
+                        $id_q       = $pdo->query("SELECT NVL(MAX(BOOKING_ID),0)+1 FROM BOOKING");
                         $booking_id = (int) $id_q->fetchColumn();
-                        $emp_id    = $_SESSION['employee_id'] ?? null;
+
+                        $emp_id = $_SESSION['employee_id'] ?? null;
                         if (!$emp_id) {
                             $e_q = $pdo->prepare("SELECT EMPLOYEE_ID FROM USER_ACCOUNT WHERE ACCOUNT_ID = :id");
                             $e_q->execute(['id' => $_SESSION['account_id']]);
                             $emp_id = $e_q->fetchColumn() ?: 0;
                         }
+
+                        // ── INSERT BOOKING (all four verification flags included) ──
                         $ins = $pdo->prepare(
                             "INSERT INTO BOOKING (
                                 BOOKING_ID, BOOKING_STATUS, CHECK_IN_DATE, CHECK_OUT_DATE,
@@ -84,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              ) VALUES (
                                 :id, 'Confirmed', TO_DATE(:cin,'YYYY-MM-DD'), TO_DATE(:cout,'YYYY-MM-DD'),
                                 :instr, :owner, :pet, :emp, :acc,
-                                'No', 'No', 'No', 'No',
+                                :consent, :nexgard, :ocular, :vetcard,
                                 :total_amount, :payment_method, SYSDATE
                              )"
                         );
@@ -97,14 +205,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'pet'            => $pet_id,
                             'emp'            => $emp_id,
                             'acc'            => $accommodation_id,
+                            'consent'        => $consent_signed,
+                            'nexgard'        => $nexgard_verified,
+                            'ocular'         => $ocular_passed,
+                            'vetcard'        => $vetcard_verified,
                             'total_amount'   => $total_amount,
-                            'payment_method' => $payment_method
+                            'payment_method' => $payment_method,
                         ]);
+
+                        // ── UPDATE ACCOMMODATION STATUS ──
                         $upd = $pdo->prepare("UPDATE ACCOMMODATION SET OCCUPANCY_STATUS = 'Booked' WHERE ACCOMMODATION_ID = :id");
                         $upd->execute(['id' => $accommodation_id]);
 
+                        // ── INSERT SERVICE DETAILS ──
                         if (!empty($selected_services)) {
-                            // Fetch prices for selected service IDs
                             $placeholders = implode(',', array_fill(0, count($selected_services), '?'));
                             $svc_price_stmt = $pdo->prepare(
                                 "SELECT SERVICE_ID, PRICE FROM SERVICE WHERE SERVICE_ID IN ($placeholders)"
@@ -116,7 +230,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 "INSERT INTO SERVICE_DETAILS (BOOKING_ID, SERVICE_ID, QUANTITY, SERVICE_CHARGE)
                                  VALUES (:booking_id, :service_id, 1, :charge)"
                             );
-
                             foreach ($selected_services as $svc_id) {
                                 $svc_ins->execute([
                                     'booking_id' => $booking_id,
@@ -126,9 +239,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         }
 
+                        // ── SAVE UPLOADED DOCUMENTS (inside the same transaction) ──
+                        if (!empty($_FILES['pet_documents']['name'][0])) {
+                            saveDocuments($pdo, $pet_id, $_FILES['pet_documents']);
+                        }
+
                         $pdo->commit();
                         header('Location: encode_reservation.php?success=1');
                         exit();
+
                     } catch (Exception $e) {
                         $pdo->rollBack();
                         $message = 'Transaction failed: ' . $e->getMessage();
@@ -142,10 +261,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ════════════════════════════════════════════════════════════════
 // DATA FOR DROPDOWNS & SERVICES
 // ════════════════════════════════════════════════════════════════
-$owners_stmt = $pdo->query("SELECT OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER FROM OWNER ORDER BY LAST_NAME ASC");
+$owners_stmt = $pdo->query("SELECT OWNER_ID, FIRST_NAME, LAST_NAME, CONTACT_NUMBER FROM OWNER WHERE STATUS = 'Active' ORDER BY LAST_NAME ASC");
 $owners      = $owners_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$pets_stmt   = $pdo->query("SELECT PET_ID, OWNER_ID, PET_NAME, WEIGHT FROM PET ORDER BY PET_NAME ASC");
+$pets_stmt   = $pdo->query("SELECT PET_ID, OWNER_ID, PET_NAME, WEIGHT FROM PET WHERE STATUS = 'Active' ORDER BY PET_NAME ASC");
 $all_pets    = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $acc_stmt    = $pdo->query("
@@ -186,13 +305,11 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             --beige:       #FAF3E1;
             --gold:        #F5E7C6;
             --white:       #ffffff;
-
             --radius-card:  20px;
             --radius-input: 12px;
             --radius-btn:   12px;
-
-            --shadow-card: 0 24px 70px rgba(15, 23, 42, 0.08);
-            --border-soft: 1px solid rgba(34, 34, 34, 0.08);
+            --shadow-card:  0 24px 70px rgba(15, 23, 42, 0.08);
+            --border-soft:  1px solid rgba(34, 34, 34, 0.08);
         }
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -344,7 +461,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         .page-title   { font-size: 2.4rem; color: var(--black); line-height: 1; margin-bottom: 6px; }
         .page-subtitle { font-size: 0.95rem; color: rgba(34,34,34,0.55); }
 
-        /* Alerts */
+        /* ── Alerts ── */
         .alert {
             display: flex; align-items: flex-start; gap: 10px;
             margin-bottom: 28px; padding: 14px 18px;
@@ -354,13 +471,10 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
         .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
         .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 
-        /* ── Structural Layout Restructure ── */
-        .form-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
+        /* ── Layout ── */
+        .form-grid { display: flex; flex-direction: column; gap: 24px; }
 
         .form-grid-top {
             display: grid;
@@ -368,11 +482,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 24px;
         }
 
-        @media (max-width: 900px) {
-            .form-grid-top { grid-template-columns: 1fr; }
-        }
-
-        /* Panel / Card */
+        /* ── Panel / Card ── */
         .panel {
             background: var(--white);
             border: var(--border-soft);
@@ -407,7 +517,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             margin-bottom: 24px;
         }
 
-        /* Form fields */
+        /* ── Form fields ── */
         .field-wrap { margin-bottom: 20px; }
         .field-wrap:last-child { margin-bottom: 0; }
 
@@ -445,7 +555,6 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .field-wrap textarea { resize: vertical; min-height: 100px; }
 
-        /* Field hint */
         .field-hint {
             font-size: 0.78rem; color: rgba(34,34,34,0.45);
             margin-top: 5px; display: flex; align-items: center; gap: 5px;
@@ -453,7 +562,108 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .field-hint svg { width: 13px; height: 13px; flex-shrink: 0; }
 
-        /* Override toggle (admin only) */
+        /* ── Check-label rows (verification flags) ── */
+        .check-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .check-label {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 16px;
+            border: 1.5px solid #e2d9ce; border-radius: 14px;
+            background: var(--beige); cursor: pointer;
+            transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+            user-select: none;
+        }
+
+        .check-label:hover { border-color: var(--orange); background: #fff8f0; }
+
+        .check-label:has(input:checked) {
+            border-color: var(--orange);
+            background: rgba(250,129,18,0.06);
+            box-shadow: 0 0 0 3px rgba(250,129,18,0.12);
+        }
+
+        .check-label input[type="checkbox"] {
+            width: 18px; height: 18px; flex-shrink: 0;
+            accent-color: var(--orange); cursor: pointer;
+        }
+
+        .check-label-body { flex-grow: 1; }
+        .check-label-name { font-weight: 600; font-size: 0.9rem; color: var(--black); }
+        .check-label-desc { font-size: 0.76rem; color: rgba(34,34,34,0.5); margin-top: 2px; }
+
+        .check-label-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            background: rgba(250,129,18,0.1);
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .check-label-icon svg { width: 16px; height: 16px; color: var(--orange); }
+
+        /* ── File upload drop zone ── */
+        .upload-zone {
+            border: 2px dashed #e2d9ce; border-radius: var(--radius-input);
+            background: var(--beige);
+            padding: 32px 24px;
+            text-align: center;
+            transition: border-color 0.2s, background 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .upload-zone:hover,
+        .upload-zone.drag-over {
+            border-color: var(--orange);
+            background: rgba(250,129,18,0.04);
+        }
+
+        .upload-zone input[type="file"] {
+            position: absolute; inset: 0;
+            width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+
+        .upload-zone-icon {
+            width: 48px; height: 48px; border-radius: 12px;
+            background: rgba(250,129,18,0.1);
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 14px;
+        }
+
+        .upload-zone-icon svg { width: 24px; height: 24px; color: var(--orange); }
+
+        .upload-zone-title {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.05rem; color: var(--black); letter-spacing: 0.06em;
+            margin-bottom: 4px;
+        }
+
+        .upload-zone-sub { font-size: 0.8rem; color: rgba(34,34,34,0.45); }
+
+        .upload-file-list {
+            list-style: none;
+            margin-top: 14px;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+
+        .upload-file-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px;
+            background: var(--white); border: var(--border-soft);
+            border-radius: 10px; font-size: 0.85rem;
+            animation: fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both;
+        }
+
+        .upload-file-item svg { width: 15px; height: 15px; color: var(--orange); flex-shrink: 0; }
+        .upload-file-name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .upload-file-size { color: rgba(34,34,34,0.4); font-size: 0.78rem; white-space: nowrap; }
+
+        /* ── Override toggle (admin only) ── */
         .override-row {
             display: flex; align-items: center; gap: 12px;
             padding: 14px 16px;
@@ -485,37 +695,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         .override-label { font-size: 0.85rem; color: rgba(34,34,34,0.7); line-height: 1.4; }
         .override-label strong { color: var(--orange); }
 
-        /* Submit button */
-        .btn-submit {
-            width: 100%; padding: 16px;
-            border: none; border-radius: var(--radius-btn);
-            background: var(--black); color: var(--white);
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.1rem; letter-spacing: 0.12em;
-            cursor: pointer;
-            display: flex; align-items: center; justify-content: center; gap: 10px;
-            transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
-        }
-
-        .btn-submit svg { width: 18px; height: 18px; }
-
-        .btn-submit:not(:disabled):hover {
-            background: var(--orange);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(250,129,18,0.3);
-        }
-
-        .btn-submit:disabled {
-            opacity: 0.45; cursor: not-allowed;
-        }
-
-        .submit-row {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        /* ── Add-On Services Visual Design ── */
+        /* ── Add-On Services ── */
         .service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 
         .service-card {
@@ -531,8 +711,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .service-card input[type="checkbox"] {
             width: 18px; height: 18px; flex-shrink: 0;
-            accent-color: var(--orange);
-            cursor: pointer;
+            accent-color: var(--orange); cursor: pointer;
         }
 
         .service-card:has(input:checked) {
@@ -552,10 +731,8 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             background: rgba(34,197,94,0.12); color: #16a34a;
         }
 
-        /* ── Payment Visual Design ── */
+        /* ── Payment ── */
         .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
-        @media (max-width: 700px) { .payment-grid { grid-template-columns: 1fr; } }
-
         .payment-method-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 
         .method-card {
@@ -582,23 +759,12 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         .cost-label { color: rgba(34,34,34,0.6); }
         .cost-val { font-weight: 500; color: var(--black); }
         .cost-divider { height: 1px; background: rgba(34,34,34,0.08); margin: 8px 0; }
+        .cost-total { font-family: 'Bebas Neue', sans-serif; font-size: 1.2rem; letter-spacing: 0.06em; color: var(--orange); padding-top: 12px; }
 
-        .cost-total {
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.2rem; letter-spacing: 0.06em;
-            color: var(--orange); padding-top: 12px;
-        }
+        /* ── Step indicator ── */
+        .step-row { display: flex; align-items: center; margin-bottom: 28px; }
 
-        /* Step indicator dots */
-        .step-row {
-            display: flex; align-items: center; gap: 0;
-            margin-bottom: 28px;
-        }
-
-        .step {
-            display: flex; flex-direction: column; align-items: center; gap: 6px;
-            flex: 1;
-        }
+        .step { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; }
 
         .step-dot {
             width: 28px; height: 28px; border-radius: 50%;
@@ -614,8 +780,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         .step-label {
             font-size: 0.68rem; font-weight: 600;
             letter-spacing: 0.1em; text-transform: uppercase;
-            color: rgba(34,34,34,0.4);
-            transition: color 0.3s;
+            color: rgba(34,34,34,0.4); transition: color 0.3s;
         }
 
         .step.done .step-label  { color: var(--orange); }
@@ -630,6 +795,42 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .step-line.done { background: var(--orange); }
 
+        /* ── Submit ── */
+        .btn-submit {
+            width: 100%; padding: 16px;
+            border: none; border-radius: var(--radius-btn);
+            background: var(--black); color: var(--white);
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.1rem; letter-spacing: 0.12em;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            transition: background 0.18s, transform 0.15s, box-shadow 0.15s;
+        }
+
+        .btn-submit svg { width: 18px; height: 18px; }
+
+        .btn-submit:not(:disabled):hover {
+            background: var(--orange);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(250,129,18,0.3);
+        }
+
+        .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .submit-row { display: flex; flex-direction: column; gap: 14px; }
+
+        /* ── Section divider inside a panel ── */
+        .panel-section-divider {
+            height: 1px; background: rgba(34,34,34,0.06);
+            margin: 24px 0;
+        }
+
+        .panel-section-label {
+            font-size: 0.72rem; font-weight: 600;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: rgba(34,34,34,0.4); margin-bottom: 16px;
+        }
+
         /* Animations */
         @keyframes fadeUp {
             from { opacity: 0; transform: translateY(20px); }
@@ -641,11 +842,17 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             body { flex-direction: column; }
             .sidebar { width: 100%; height: auto; position: static; }
             .main-content { padding: 24px 20px; }
+            .form-grid-top { grid-template-columns: 1fr; }
+            .check-grid { grid-template-columns: 1fr; }
+            .payment-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
 
+<!-- ════════════════════════════════════════════════════════════
+     SIDEBAR
+════════════════════════════════════════════════════════════ -->
 <aside class="sidebar">
 
     <div class="sidebar-brand">
@@ -699,10 +906,6 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M14 10h.01M10 10h.01M9 16s1 1 3 1 3-1 3-1M21 12c0 4.97-4.03 9-9 9S3 16.97 3 12 7.03 3 12 3s9 4.03 9 9z"/></svg>
             Pets
         </a></li>
-        <!-- <li><a href="checkout.php" class="nav-link">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-            Checkout / Payments
-        </a></li> -->
         <?php if (isAdmin()): ?>
             <li><a href="user_management.php" class="nav-link">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -724,6 +927,9 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 </aside>
 
+<!-- ════════════════════════════════════════════════════════════
+     MAIN CONTENT
+════════════════════════════════════════════════════════════ -->
 <main class="main-content">
 
     <div class="page-header">
@@ -733,7 +939,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 
     <?php if (isset($_GET['success']) && $_GET['success'] === '1'): ?>
-        <div class="alert alert-success" style="margin-bottom: 24px;">
+        <div class="alert alert-success">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
@@ -750,42 +956,55 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     <?php endif; ?>
 
+    <!-- Step indicator -->
     <div class="step-row" id="stepRow">
-    <div class="step active" id="step1">
-        <div class="step-dot">1</div>
-        <span class="step-label">Owner</span>
+        <div class="step active" id="step1">
+            <div class="step-dot">1</div>
+            <span class="step-label">Owner</span>
+        </div>
+        <div class="step-line" id="line1"></div>
+        <div class="step" id="step2">
+            <div class="step-dot">2</div>
+            <span class="step-label">Pet</span>
+        </div>
+        <div class="step-line" id="line2"></div>
+        <div class="step" id="step3">
+            <div class="step-dot">3</div>
+            <span class="step-label">Unit</span>
+        </div>
+        <div class="step-line" id="line3"></div>
+        <div class="step" id="step4">
+            <div class="step-dot">4</div>
+            <span class="step-label">Dates</span>
+        </div>
+        <div class="step-line" id="line4"></div>
+        <div class="step" id="step5">
+            <div class="step-dot">5</div>
+            <span class="step-label">Services</span>
+        </div>
+        <div class="step-line" id="line5"></div>
+        <div class="step" id="step6">
+            <div class="step-dot">6</div>
+            <span class="step-label">Docs</span>
+        </div>
+        <div class="step-line" id="line6"></div>
+        <div class="step" id="step7">
+            <div class="step-dot">7</div>
+            <span class="step-label">Payment</span>
+        </div>
     </div>
-    <div class="step-line" id="line1"></div>
-    <div class="step" id="step2">
-        <div class="step-dot">2</div>
-        <span class="step-label">Pet</span>
-    </div>
-    <div class="step-line" id="line2"></div>
-    <div class="step" id="step3">
-        <div class="step-dot">3</div>
-        <span class="step-label">Unit</span>
-    </div>
-    <div class="step-line" id="line3"></div>
-    <div class="step" id="step4">
-        <div class="step-dot">4</div>
-        <span class="step-label">Dates</span>
-    </div>
-    <div class="step-line" id="line4"></div>
-    <div class="step" id="step5">
-        <div class="step-dot">5</div>
-        <span class="step-label">Services</span>
-    </div>
-    <div class="step-line" id="line5"></div>
-    <div class="step" id="step6">
-        <div class="step-dot">6</div>
-        <span class="step-label">Payment</span>
-    </div>
-</div>
 
-    <form action="encode_reservation.php" method="POST" id="reservationForm">
+    <!--
+        IMPORTANT: enctype="multipart/form-data" is required for file uploads.
+        All existing name/id attributes on form elements are preserved unchanged.
+    -->
+    <form action="encode_reservation.php" method="POST" id="reservationForm" enctype="multipart/form-data">
         <div class="form-grid">
 
+            <!-- ── Row 1: Customer & Booking ── -->
             <div class="form-grid-top">
+
+                <!-- Customer & Accommodation panel -->
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-icon">
@@ -793,7 +1012,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                             </svg>
                         </div>
-                        <span class="panel-heading">Customer & Accommodation</span>
+                        <span class="panel-heading">Customer &amp; Accommodation</span>
                     </div>
 
                     <div class="field-wrap">
@@ -829,8 +1048,20 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
                             Auto-filtered by pet weight and tier
                         </div>
                     </div>
+
+                    <?php if (isAdmin()): ?>
+                    <div class="override-row">
+                        <div class="toggle-wrap">
+                            <input type="checkbox" id="overrideToggle" name="override" value="1">
+                        </div>
+                        <label class="override-label" for="overrideToggle">
+                            <strong>Admin override</strong> — allow booking a non-available unit
+                        </label>
+                    </div>
+                    <?php endif; ?>
                 </div>
 
+                <!-- Booking Details panel -->
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-icon">
@@ -858,11 +1089,12 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             </div>
 
+            <!-- ── Add-On Services ── -->
             <div class="panel">
                 <div class="panel-header">
                     <div class="panel-icon">
                         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                     </div>
                     <span class="panel-heading">Add-On Services</span>
@@ -884,18 +1116,122 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <div class="service-card-desc"><?php echo htmlspecialchars($svc['SERVICE_DESCRIPTION']); ?></div>
                             </div>
                             <div class="service-card-price">
-                                <?php echo $svc['PRICE'] > 0 ? '₱' . number_format($svc['PRICE'], 2) : '<span class="free-badge">FREE</span>'; ?>
+                                <?php echo $svc['PRICE'] > 0
+                                    ? '₱' . number_format($svc['PRICE'], 2)
+                                    : '<span class="free-badge">FREE</span>'; ?>
                             </div>
                         </label>
                     <?php endforeach; ?>
                 </div>
             </div>
 
+            <!-- ══════════════════════════════════════════════════════
+                 BOOKING REQUIREMENTS
+                 New section: verification flags + document upload
+            ══════════════════════════════════════════════════════ -->
             <div class="panel">
                 <div class="panel-header">
                     <div class="panel-icon">
                         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                    </div>
+                    <span class="panel-heading">Booking Requirements</span>
+                </div>
+                <p class="panel-subtext">Record on-site verification results and upload supporting documents for this pet's stay.</p>
+
+                <!-- Verification flags -->
+                <div class="panel-section-label">Check-in Verification</div>
+                <div class="check-grid">
+
+                    <label class="check-label" for="consentSigned">
+                        <div class="check-label-icon">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2 2 0 002-2V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
+                            </svg>
+                        </div>
+                        <input type="checkbox" id="consentSigned" name="consent_form_signed" value="Yes">
+                        <div class="check-label-body">
+                            <div class="check-label-name">Consent Form Signed</div>
+                            <div class="check-label-desc">Owner has signed the liability waiver and consent form</div>
+                        </div>
+                    </label>
+
+                    <label class="check-label" for="nexgardVerified">
+                        <div class="check-label-icon">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1-.26 2.28-1.28 1.28L19.8 15.3M5 14.5l-1.402 1.402C2.598 16.9 3.858 18.18 4.88 17.18L5 14.5"/>
+                            </svg>
+                        </div>
+                        <input type="checkbox" id="nexgardVerified" name="nexgard_verified" value="Yes">
+                        <div class="check-label-body">
+                            <div class="check-label-name">NexGard Verified</div>
+                            <div class="check-label-desc">Last NexGard / Bravecto administration confirmed</div>
+                        </div>
+                    </label>
+
+                    <label class="check-label" for="ocularPassed">
+                        <div class="check-label-icon">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                        </div>
+                        <input type="checkbox" id="ocularPassed" name="ocular_exam_passed" value="Yes">
+                        <div class="check-label-body">
+                            <div class="check-label-name">Ocular Exam Passed</div>
+                            <div class="check-label-desc">Visual health check passed — no ticks, fleas, or visible wounds</div>
+                        </div>
+                    </label>
+
+                    <label class="check-label" for="vetcardVerified">
+                        <div class="check-label-icon">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/>
+                            </svg>
+                        </div>
+                        <input type="checkbox" id="vetcardVerified" name="vetcard_verified" value="Yes">
+                        <div class="check-label-body">
+                            <div class="check-label-name">Vet Card Verified</div>
+                            <div class="check-label-desc">Physical vaccination card inspected and confirmed up-to-date</div>
+                        </div>
+                    </label>
+
+                </div>
+
+                <div class="panel-section-divider"></div>
+
+                <!-- Document upload -->
+                <div class="panel-section-label">Upload Supporting Documents</div>
+                <p style="font-size:0.83rem;color:rgba(34,34,34,0.5);margin-bottom:16px;line-height:1.5;">
+                    Optional. Attach the pet's vet card, consent waiver, or any other compliance file (PDF, JPG, PNG — max 5 MB each).
+                    Files are linked directly to this pet's record and saved as <em>Pending</em> for admin review.
+                </p>
+
+                <div class="upload-zone" id="uploadZone">
+                    <input type="file"
+                           id="petDocuments"
+                           name="pet_documents[]"
+                           multiple
+                           accept=".pdf,.jpg,.jpeg,.png,.gif"
+                           onchange="handleFileSelect(this)">
+                    <div class="upload-zone-icon">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                        </svg>
+                    </div>
+                    <div class="upload-zone-title">Drop files here or click to browse</div>
+                    <div class="upload-zone-sub">PDF, JPG, PNG · Max 5 MB per file · Multiple allowed</div>
+                </div>
+
+                <ul class="upload-file-list" id="fileList"></ul>
+            </div>
+
+            <!-- ── Payment ── -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-icon">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
                         </svg>
                     </div>
                     <span class="panel-heading">Payment</span>
@@ -941,26 +1277,25 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             </div>
 
+            <!-- ── Submit ── -->
             <div class="submit-row">
-                <button type="submit" id="submitBtn" class="btn btn-primary btn-submit" disabled>
+                <button type="submit" id="submitBtn" class="btn-submit" disabled>
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                     Confirm &amp; Pay Reservation
                 </button>
-               
             </div>
 
-        </div>
+        </div><!-- /.form-grid -->
     </form>
 
 </main>
 
 <script>
-    const petsData          = <?php echo json_encode($all_pets); ?>;
+    const petsData           = <?php echo json_encode($all_pets); ?>;
     const accommodationsData = <?php echo json_encode($all_accommodations); ?>;
 
-    // Accommodation rate data passed from PHP
     const accommodationRates = <?php
         $rates = [];
         foreach ($all_accommodations as $a) {
@@ -977,46 +1312,37 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
     const accSelect = document.getElementById('accommodationSelect');
     const submitBtn = document.getElementById('submitBtn');
 
-    /* ── Step indicator ─────────────────────────────── */
-    if(document.getElementById('stepRow')) {
-        document.getElementById('ownerSelect').addEventListener('change', validateForm);
-        petSelect.addEventListener('change', validateForm);
-        accSelect.addEventListener('change', validateForm);
+    // ── Step indicator ────────────────────────────────────────
+    function updateSteps() {
+        if (!document.getElementById('stepRow')) return;
+
+        const hasOwner    = !!document.getElementById('ownerSelect').value;
+        const hasPet      = !!petSelect.value;
+        const hasUnit     = !!accSelect.value;
+        const hasDates    = !!(document.getElementById('checkIn').value && document.getElementById('checkOut').value);
+        const hasServices = hasDates;  // services are optional; step lights once dates are set
+        const hasDocs     = hasDates;  // documents are optional; step lights once dates are set
+        const hasPayment  = hasDates;
+
+        setStep('step1', 'line1', hasOwner,    true);
+        setStep('step2', 'line2', hasPet,      hasOwner);
+        setStep('step3', 'line3', hasUnit,     hasPet);
+        setStep('step4', 'line4', hasDates,    hasUnit);
+        setStep('step5', 'line5', hasServices, hasDates);
+        setStep('step6', 'line6', hasDocs,     hasServices);
+        setStep('step7', null,    hasPayment,  hasDocs);
     }
-
-   function updateSteps() {
-    if (!document.getElementById('stepRow')) return;
-    
-    // 1. Define conditions for each step
-    const hasOwner  = !!document.getElementById('ownerSelect').value;
-    const hasPet    = !!petSelect.value;
-    const hasUnit   = !!accSelect.value;
-    const hasDates  = !!(document.getElementById('checkIn').value && document.getElementById('checkOut').value);
-    
-    // Services are optional, so we'll mark them as 'done' if Dates are valid
-    const hasServices = hasDates; 
-    const hasPayment  = hasDates; // Payment method is defaulted to Cash, so it's always 'set' once dates are in
-
-    // 2. Apply step logic
-    // We only light up the next step if the previous one is finished
-    setStep('step1', 'line1', hasOwner, true);
-    setStep('step2', 'line2', hasPet,   hasOwner);
-    setStep('step3', 'line3', hasUnit,  hasPet);
-    setStep('step4', 'line4', hasDates, hasUnit);
-    setStep('step5', 'line5', hasServices, hasDates);
-    setStep('step6', null,    hasPayment, hasServices);
-}
 
     function setStep(stepId, lineId, isDone, isActive) {
         const s = document.getElementById(stepId);
-        if(!s) return;
+        if (!s) return;
         s.classList.toggle('done',   isDone);
         s.classList.toggle('active', !isDone && isActive);
-        const l = document.getElementById(lineId);
+        const l = lineId ? document.getElementById(lineId) : null;
         if (l) l.classList.toggle('done', isDone);
     }
 
-    /* ── Filter pets by owner ───────────────────────── */
+    // ── Filter pets by owner ──────────────────────────────────
     function filterPets() {
         const ownerId = document.getElementById('ownerSelect').value;
 
@@ -1029,7 +1355,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         const filtered = petsData.filter(p => p.OWNER_ID == ownerId);
         if (filtered.length > 0) {
             filtered.forEach(p => {
-                const opt = document.createElement('option');
+                const opt       = document.createElement('option');
                 opt.value       = p.PET_ID;
                 opt.textContent = `${p.PET_NAME} (${p.WEIGHT} kg)`;
                 petSelect.appendChild(opt);
@@ -1043,7 +1369,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         recalcTotal();
     }
 
-    /* ── Filter accommodations by pet weight ────────── */
+    // ── Filter accommodations by pet weight ───────────────────
     function filterAccommodations() {
         accSelect.innerHTML = '<option value="">— Select a unit —</option>';
         const petId = petSelect.value;
@@ -1061,7 +1387,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (valid.length > 0) {
             valid.forEach(a => {
-                const opt = document.createElement('option');
+                const opt       = document.createElement('option');
                 opt.value       = a.ACCOMMODATION_ID;
                 opt.textContent = `${a.UNIT_NAME} — ${a.TIER_NAME} Tier`;
                 accSelect.appendChild(opt);
@@ -1075,9 +1401,8 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         recalcTotal();
     }
 
-    /* ── Real-time Financial Breakdown Matrix ────────── */
+    // ── Real-time cost breakdown ──────────────────────────────
     function recalcTotal() {
-        // 1. Get number of nights
         const cin  = document.getElementById('checkIn').value;
         const cout = document.getElementById('checkOut').value;
         let nights = 0;
@@ -1086,32 +1411,34 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
             nights = Math.max(0, Math.round((d2 - d1) / 86400000));
         }
 
-        // 2. Get daily rate for selected accommodation
-        const accId = accSelect.value;
-        const rate  = accId && accommodationRates[accId] ? accommodationRates[accId].daily_rate : 0;
+        const accId    = accSelect.value;
+        const rate     = accId && accommodationRates[accId] ? accommodationRates[accId].daily_rate : 0;
         const accTotal = nights * rate;
 
-        // 3. Sum selected services
         let svcTotal = 0;
         document.querySelectorAll('input[name="services[]"]:checked').forEach(cb => {
             svcTotal += parseFloat(cb.dataset.price) || 0;
         });
 
-        // 4. Update breakdown display
-        document.getElementById('costAccommodation').textContent = '₱' + accTotal.toLocaleString('en-PH', {minimumFractionDigits:2});
+        document.getElementById('costAccommodation').textContent =
+            '₱' + accTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+
         const svcRow = document.getElementById('costServicesRow');
         if (svcTotal > 0) {
             svcRow.style.display = 'flex';
-            document.getElementById('costServices').textContent = '₱' + svcTotal.toLocaleString('en-PH', {minimumFractionDigits:2});
+            document.getElementById('costServices').textContent =
+                '₱' + svcTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 });
         } else {
             svcRow.style.display = 'none';
         }
+
         const grand = accTotal + svcTotal;
-        document.getElementById('costTotal').textContent = '₱' + grand.toLocaleString('en-PH', {minimumFractionDigits:2});
+        document.getElementById('costTotal').textContent =
+            '₱' + grand.toLocaleString('en-PH', { minimumFractionDigits: 2 });
         document.getElementById('totalAmountInput').value = grand.toFixed(2);
     }
 
-    /* ── Validate & enable submit ───────────────────── */
+    // ── Validate & enable submit ──────────────────────────────
     function validateForm() {
         updateSteps();
 
@@ -1119,18 +1446,62 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         const checkIn  = document.getElementById('checkIn').value;
         const checkOut = document.getElementById('checkOut').value;
 
-        const today    = new Date(); today.setHours(0,0,0,0);
-        const inDate   = new Date(checkIn);
-        const outDate  = new Date(checkOut);
-        const datesOk  = checkIn && inDate >= today && checkOut && outDate > inDate;
+        const today   = new Date(); today.setHours(0, 0, 0, 0);
+        const inDate  = new Date(checkIn);
+        const outDate = new Date(checkOut);
+        const datesOk = checkIn && inDate >= today && checkOut && outDate > inDate;
 
         submitBtn.disabled = !(ownerId && petSelect.value && accSelect.value && datesOk);
     }
 
-    // Attach real-time mathematical recalculations to form change triggers
-    document.getElementById('checkIn').addEventListener('change', function() { validateForm(); recalcTotal(); });
-    document.getElementById('checkOut').addEventListener('change', function() { validateForm(); recalcTotal(); });
-    accSelect.addEventListener('change', function() { validateForm(); recalcTotal(); });
+    // ── File upload: display selected file names ──────────────
+    function handleFileSelect(input) {
+        const list = document.getElementById('fileList');
+        list.innerHTML = '';
+
+        const formatSize = bytes => {
+            if (bytes < 1024)       return bytes + ' B';
+            if (bytes < 1048576)    return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        };
+
+        Array.from(input.files).forEach(file => {
+            const li = document.createElement('li');
+            li.className = 'upload-file-item';
+            li.innerHTML = `
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+                </svg>
+                <span class="upload-file-name">${file.name}</span>
+                <span class="upload-file-size">${formatSize(file.size)}</span>`;
+            list.appendChild(li);
+        });
+    }
+
+    // ── Drag-and-drop highlight on upload zone ────────────────
+    const uploadZone = document.getElementById('uploadZone');
+    if (uploadZone) {
+        uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+        uploadZone.addEventListener('drop',      e => {
+            e.preventDefault();
+            uploadZone.classList.remove('drag-over');
+            const input = document.getElementById('petDocuments');
+            input.files = e.dataTransfer.files;
+            handleFileSelect(input);
+        });
+    }
+
+    // ── Event listener wiring ─────────────────────────────────
+    document.getElementById('checkIn').addEventListener('change',  () => { validateForm(); recalcTotal(); });
+    document.getElementById('checkOut').addEventListener('change', () => { validateForm(); recalcTotal(); });
+    accSelect.addEventListener('change', () => { validateForm(); recalcTotal(); });
+
+    document.getElementById('ownerSelect').addEventListener('change', validateForm);
+    petSelect.addEventListener('change', validateForm);
+    accSelect.addEventListener('change', validateForm);
 </script>
+
 </body>
 </html>
