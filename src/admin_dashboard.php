@@ -787,12 +787,12 @@ try {
             TODO: Remove the Checkout button below once Checkout is merged into Schedule page.
             At that point, delete the entire <a> tag below.
             -->
-            <a href="checkout.php" class="btn btn-ghost">
+            <!-- <a href="checkout.php" class="btn btn-ghost">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
                 </svg>
                 Checkout / Payments
-            </a>
+            </a> -->
         </div>
     </div>
 

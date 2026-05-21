@@ -751,26 +751,36 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
     <?php endif; ?>
 
     <div class="step-row" id="stepRow">
-        <div class="step active" id="step1">
-            <div class="step-dot">1</div>
-            <span class="step-label">Owner</span>
-        </div>
-        <div class="step-line" id="line1"></div>
-        <div class="step" id="step2">
-            <div class="step-dot">2</div>
-            <span class="step-label">Pet</span>
-        </div>
-        <div class="step-line" id="line2"></div>
-        <div class="step" id="step3">
-            <div class="step-dot">3</div>
-            <span class="step-label">Unit</span>
-        </div>
-        <div class="step-line" id="line3"></div>
-        <div class="step" id="step4">
-            <div class="step-dot">4</div>
-            <span class="step-label">Dates</span>
-        </div>
+    <div class="step active" id="step1">
+        <div class="step-dot">1</div>
+        <span class="step-label">Owner</span>
     </div>
+    <div class="step-line" id="line1"></div>
+    <div class="step" id="step2">
+        <div class="step-dot">2</div>
+        <span class="step-label">Pet</span>
+    </div>
+    <div class="step-line" id="line2"></div>
+    <div class="step" id="step3">
+        <div class="step-dot">3</div>
+        <span class="step-label">Unit</span>
+    </div>
+    <div class="step-line" id="line3"></div>
+    <div class="step" id="step4">
+        <div class="step-dot">4</div>
+        <span class="step-label">Dates</span>
+    </div>
+    <div class="step-line" id="line4"></div>
+    <div class="step" id="step5">
+        <div class="step-dot">5</div>
+        <span class="step-label">Services</span>
+    </div>
+    <div class="step-line" id="line5"></div>
+    <div class="step" id="step6">
+        <div class="step-dot">6</div>
+        <span class="step-label">Payment</span>
+    </div>
+</div>
 
     <form action="encode_reservation.php" method="POST" id="reservationForm">
         <div class="form-grid">
@@ -938,16 +948,7 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
                     </svg>
                     Confirm &amp; Pay Reservation
                 </button>
-                <?php if (isAdmin()): ?>
-                    <div class="override-row">
-                        <div class="toggle-wrap">
-                            <input type="checkbox" id="overrideSwitch" name="override" value="1">
-                        </div>
-                        <label class="override-label" for="overrideSwitch">
-                            <strong>Admin Override</strong> — force-book even if unit is currently unavailable
-                        </label>
-                    </div>
-                <?php endif; ?>
+               
             </div>
 
         </div>
@@ -983,19 +984,28 @@ $all_services = $svc_stmt->fetchAll(PDO::FETCH_ASSOC);
         accSelect.addEventListener('change', validateForm);
     }
 
-    function updateSteps() {
-        if (!document.getElementById('stepRow')) return;
-        const hasOwner = !!document.getElementById('ownerSelect').value;
-        const hasPet   = !!petSelect.value;
-        const hasUnit  = !!accSelect.value;
-        const hasIn    = !!document.getElementById('checkIn').value;
-        const hasOut   = !!document.getElementById('checkOut').value;
+   function updateSteps() {
+    if (!document.getElementById('stepRow')) return;
+    
+    // 1. Define conditions for each step
+    const hasOwner  = !!document.getElementById('ownerSelect').value;
+    const hasPet    = !!petSelect.value;
+    const hasUnit   = !!accSelect.value;
+    const hasDates  = !!(document.getElementById('checkIn').value && document.getElementById('checkOut').value);
+    
+    // Services are optional, so we'll mark them as 'done' if Dates are valid
+    const hasServices = hasDates; 
+    const hasPayment  = hasDates; // Payment method is defaulted to Cash, so it's always 'set' once dates are in
 
-        setStep('step1', 'line1', hasOwner, hasOwner);
-        setStep('step2', 'line2', hasPet,   hasPet && hasOwner);
-        setStep('step3', 'line3', hasUnit,  hasUnit && hasPet);
-        setStep('step4', null,    hasIn && hasOut, hasUnit);
-    }
+    // 2. Apply step logic
+    // We only light up the next step if the previous one is finished
+    setStep('step1', 'line1', hasOwner, true);
+    setStep('step2', 'line2', hasPet,   hasOwner);
+    setStep('step3', 'line3', hasUnit,  hasPet);
+    setStep('step4', 'line4', hasDates, hasUnit);
+    setStep('step5', 'line5', hasServices, hasDates);
+    setStep('step6', null,    hasPayment, hasServices);
+}
 
     function setStep(stepId, lineId, isDone, isActive) {
         const s = document.getElementById(stepId);

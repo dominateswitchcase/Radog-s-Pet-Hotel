@@ -965,7 +965,9 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
 
 <aside class="sidebar">
     <div class="sidebar-brand">
-        <div class="sidebar-logo-placeholder">RK</div>
+        <div class="sidebar-logo">
+            <img src="../img/radog_logocutie.png" alt="Radog's Kennel">
+        </div>
         <div>
             <div class="sidebar-wordmark-top">Radog's Kennel</div>
             <div class="sidebar-wordmark-sub">Pet Hotel Management</div>
@@ -1059,7 +1061,7 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                 <?php endif; ?>
 
                 <div class="panel">
-                    <div class="panel-header">
+                   <div class="panel-header">
                         <div class="panel-header-left">
                             <div class="panel-icon">
                                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
@@ -1069,11 +1071,20 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
                                 <div class="panel-subtext"><?php echo count($accommodations); ?> unit(s) registered</div>
                             </div>
                         </div>
-                        <button type="button" class="btn btn-primary" id="openAddAccommodation">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                            Add Unit
-                        </button>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <select id="tierFilter" style="width:160px; padding:8px 12px;" onchange="filterUnits(this.value)">
+                                <option value="all">All Tiers</option>
+                                <?php foreach ($allTiers as $t): ?>
+                                    <option value="<?php echo escape($t['TIER_NAME']); ?>"><?php echo escape($t['TIER_NAME']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button" class="btn btn-primary" id="openAddAccommodation">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                                Add Unit
+                            </button>
+                        </div>
                     </div>
+                                
                     <div class="table-wrap">
                         <table class="data-table">
                             <thead>
@@ -2010,6 +2021,23 @@ $role = $_SESSION['user_group_id'] == 1 ? 'Administrator' : 'Staff';
         });
     });
 
+    //TIER FILTER
+    function filterUnits(tierName) {
+    const table = document.querySelector('#panel-accommodation .data-table tbody');
+    const rows = table.getElementsByTagName('tr');
+
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        // The Tier name is in the 3rd cell (index 2)
+        const tierCell = row.getElementsByTagName('td')[2];
+        
+        if (tierName === 'all') {
+            row.style.display = '';
+        } else {
+            row.style.display = (tierCell.textContent === tierName) ? '' : 'none';
+        }
+    }
+}
     /* ── INACTIVE SECTION TOGGLES ───────────────────────────── */
     document.querySelectorAll('.show-inactive-btn').forEach(function (button) {
         button.addEventListener('click', function () {

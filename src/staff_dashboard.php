@@ -761,13 +761,12 @@ $units = $units_stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="sidebar-spacer"></div>
     <div class="sidebar-divider"></div>
 
-    <a href="../logout.php" class="logout-btn">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-        </svg>
-        Logout
-    </a>
-
+    <div class="sidebar-footer">
+        <a href="../logout.php" class="logout-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Logout
+        </a>
+    </div>
 </aside>
 
 <!-- ══════════════════════════════════════════════════════
