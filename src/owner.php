@@ -79,7 +79,11 @@ function saveDocuments($pdo, $petId, $filesArray, $docType = 'Pet Document') {
         $safeName = 'pet_' . $petId . '_' . uniqid() . '.' . $ext;
         $dest     = $uploadDir . $safeName;
 
+<<<<<<< Updated upstream
         // Normalised web path — always forward slashes, rooted at project web root
+=======
+        // Normalised web path — always forward slashes for portability
+>>>>>>> Stashed changes
         $webPath  = '/uploads/pet_docs/' . $safeName;
 
         if (!move_uploaded_file($filesArray['tmp_name'][$i], $dest)) {
@@ -121,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // =========================================================================
     // CREATE OWNER + PET(S)
+<<<<<<< Updated upstream
     //
     // WHY checkboxes are NOT persisted here:
     // The four verification flags (Consent_Form_Signed, NexGard_Verified,
@@ -129,6 +134,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // yet, so there is nowhere to store them.  The checkboxes in the create
     // modal are purely for the staff's visual reference during walk-in and
     // will be set on the first booking created for that pet.
+=======
+    // NOTE: The four verification checkboxes (consent_form, nexgard,
+    // ocular_exam, vetcard) belong to the BOOKING table in the DB schema,
+    // NOT to PET.  At registration time there is no booking yet, so we cannot
+    // persist them here.  The values collected in the form are intentionally
+    // ignored for DB storage; they will be set when the first booking is
+    // created for the pet.  The checkboxes in the create modal are shown purely
+    // to let staff note which requirements were already satisfied at walk-in so
+    // they can fill them immediately on the booking form.
+>>>>>>> Stashed changes
     // =========================================================================
     if ($action === 'create_owner_pet') {
         header('Content-Type: application/json');
@@ -243,8 +258,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
+<<<<<<< Updated upstream
         // Fetch pets with latest booking verification states.
         // NVL defaults to 'No' so the JS always receives a clean 'Yes'/'No' string.
+=======
+        // Fetch pets with latest booking verification states
+>>>>>>> Stashed changes
         $pets_stmt = $pdo->prepare("
             SELECT P.PET_ID, P.PET_NAME, P.CATEGORY_ID, P.WEIGHT, P.SEX,
                    P.FEEDING_TIME, P.FEEDING_PORTION,
@@ -270,8 +289,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pets_stmt->execute(['id' => $owner_id]);
         $pets = $pets_stmt->fetchAll(PDO::FETCH_ASSOC);
 
+<<<<<<< Updated upstream
         // Fetch documents for all active pets of this owner.
         // REPLACE normalises any backslash paths from Windows servers.
+=======
+        // Fetch documents for all pets of this owner — normalise filepath slashes
+>>>>>>> Stashed changes
         $docs_stmt = $pdo->prepare("
             SELECT pd.DOC_ID,
                    pd.DOCUMENT_TYPE,
@@ -304,11 +327,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // =========================================================================
     // UPDATE OWNER + PET
+<<<<<<< Updated upstream
     //
     // The four verification flags live on the BOOKING table.  We update them
     // on the pet's most recent NON-COMPLETED, NON-CANCELLED booking only.
     // If no such booking exists the values are noted in the UI for when the
     // next booking is created — we do NOT create a phantom booking row.
+=======
+    // Verification checkbox values (consent, nexgard, ocular, vetcard) are
+    // stored on the BOOKING table.  On update we persist them to the pet's
+    // MOST RECENT booking so the state is preserved for display.  If no
+    // booking exists for this pet yet we skip the booking update gracefully.
+>>>>>>> Stashed changes
     // =========================================================================
     if ($action === 'update_owner_pet') {
         header('Content-Type: application/json');
@@ -368,12 +398,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'owner_id'     => $owner_id,
             ]);
 
+<<<<<<< Updated upstream
             // Persist verification checkboxes to the pet's most recent ACTIVE booking
             // only (Confirmed or Pending).  We never touch Completed/Cancelled rows.
             $bk_stmt = $pdo->prepare(
                 "SELECT BOOKING_ID FROM BOOKING
                  WHERE PET_ID = :pid
                  AND BOOKING_STATUS IN ('Confirmed', 'Pending')
+=======
+            // Persist verification checkboxes to the pet's most recent booking.
+            // We do NOT touch bookings that are Cancelled or Completed — only the
+            // latest active/pending/confirmed booking, if any.
+            $bk_stmt = $pdo->prepare(
+                "SELECT BOOKING_ID FROM BOOKING
+                 WHERE PET_ID = :pid
+>>>>>>> Stashed changes
                  ORDER BY BOOKING_ID DESC
                  FETCH FIRST 1 ROWS ONLY"
             );
@@ -396,8 +435,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'bid'     => (int)$latestBooking['BOOKING_ID'],
                 ]);
             }
+<<<<<<< Updated upstream
             // If no active booking exists, the values are UI-only until the next
             // booking is created — the booking form should pre-populate from these.
+=======
+            // If no booking exists for this pet yet, the checkbox values are noted
+            // in the UI only — they will be set when the first booking is created.
+>>>>>>> Stashed changes
 
             // Save any newly uploaded documents
             if (
@@ -828,11 +872,14 @@ $role = $_SESSION['role'] ?? 'Staff';
             Pets
         </a>
 
+<<<<<<< Updated upstream
         <a href="checkout.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
             Checkout / Payments
         </a>
 
+=======
+>>>>>>> Stashed changes
         <?php if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin'): ?>
         <a href="user_management.php" class="nav-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -944,7 +991,12 @@ $role = $_SESSION['role'] ?? 'Staff';
                             </a>
                             <?php if (!$isInactiveRow): ?>
                             <button type="button" class="btn btn-primary btn-sm edit-owner-btn"
+<<<<<<< Updated upstream
                                     data-owner-id="<?php echo $row['OWNER_ID']; ?>">
+=======
+                                    data-owner-id="<?php echo $row['OWNER_ID']; ?>"
+                                    onclick="openModal('editOwnerModal')">
+>>>>>>> Stashed changes
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 Edit
                             </button>
@@ -1042,9 +1094,12 @@ $role = $_SESSION['role'] ?? 'Staff';
         </div>
         <div class="modal-body">
             <form id="editOwnerForm" enctype="multipart/form-data">
+<<<<<<< Updated upstream
                 <!-- FIX: pet_id is only submitted via this hidden field.
                      The pet select below does NOT carry name="pet_id" to
                      prevent duplicate keys in FormData. -->
+=======
+>>>>>>> Stashed changes
                 <input type="hidden" id="modalOwnerId" name="owner_id">
                 <input type="hidden" id="modalPetId"   name="pet_id">
 
@@ -1073,8 +1128,12 @@ $role = $_SESSION['role'] ?? 'Staff';
 
                 <div class="field-group" style="margin-bottom:16px;">
                     <label class="field-label">Select Pet</label>
+<<<<<<< Updated upstream
                     <!-- NOTE: no name="pet_id" here — the hidden field above carries the value -->
                     <select id="modalPetSelect"></select>
+=======
+                    <select id="modalPetSelect" name="pet_id" required></select>
+>>>>>>> Stashed changes
                 </div>
 
                 <div class="grid-3" style="margin-bottom:16px;">
@@ -1118,7 +1177,11 @@ $role = $_SESSION['role'] ?? 'Staff';
                 <!-- ── Uploaded Documents ── -->
                 <div class="modal-section-label">Uploaded Documents</div>
                 <div id="editDocumentsList">
+<<<<<<< Updated upstream
                     <div class="doc-loading">Select a pet above to load documents.</div>
+=======
+                    <div class="doc-loading">Select an owner above to load documents.</div>
+>>>>>>> Stashed changes
                 </div>
 
                 <div class="field-group" style="margin-top:16px;">
@@ -1135,6 +1198,7 @@ $role = $_SESSION['role'] ?? 'Staff';
                     <span class="file-hint">Accepted: PDF, JPG, PNG &mdash; saved as <strong>Pending</strong> verification.</span>
                 </div>
 
+<<<<<<< Updated upstream
                 <!-- ── Check-In Verifications ── -->
                 <!--
                     These flags are stored on the BOOKING table (schema constraint).
@@ -1143,11 +1207,18 @@ $role = $_SESSION['role'] ?? 'Staff';
                     are stored locally in the JS ownerPets cache and pre-filled when
                     the booking form is opened — they will be written to BOOKING then.
                 -->
+=======
+                <!-- ── Check-In Verifications (persisted to most recent BOOKING row) ── -->
+>>>>>>> Stashed changes
                 <div class="modal-section-label" style="margin-top:8px;">Check-In Verifications</div>
 
                 <div class="info-note">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+<<<<<<< Updated upstream
                     These values reflect the pet's <strong>most recent active booking</strong> (Confirmed or Pending). Changes are saved to that booking row. If no active booking exists, the state is noted here for reference and will be applied when the next booking is created.
+=======
+                    These values reflect the pet's <strong>most recent booking</strong> record. If no booking exists yet, changes here will be applied when the first booking is created.
+>>>>>>> Stashed changes
                 </div>
 
                 <div class="check-group" style="margin-bottom:16px;">
@@ -1260,6 +1331,7 @@ function updateFileLabel(input, labelId) {
 }
 
 // ── Checkbox visual sync ───────────────────────────────────
+<<<<<<< Updated upstream
 // Keeps the .checked CSS class on the parent .check-label in sync with
 // the actual checkbox state.  Called via onchange AND programmatically.
 function syncCheckLabel(checkbox) {
@@ -1271,11 +1343,31 @@ function syncCheckLabel(checkbox) {
 // ── Set a checkbox state + immediately sync its label ──────
 function setCheckbox(checkboxEl, isChecked) {
     if (!checkboxEl) return;
+=======
+// Called via onchange on each checkbox.  Keeps the .checked CSS class
+// on the parent .check-label in sync with the checkbox state.
+function syncCheckLabel(checkbox) {
+    const label = checkbox.closest('.check-label');
+    if (!label) return;
+    if (checkbox.checked) {
+        label.classList.add('checked');
+    } else {
+        label.classList.remove('checked');
+    }
+}
+
+// ── Programmatically set a checkbox + sync its label ──────
+function setCheckbox(checkboxEl, isChecked) {
+>>>>>>> Stashed changes
     checkboxEl.checked = isChecked;
     syncCheckLabel(checkboxEl);
 }
 
+<<<<<<< Updated upstream
 // ── Build a pet-entry card HTML string (create modal) ─────
+=======
+// ── Build a pet-entry card HTML string (used for create modal) ──
+>>>>>>> Stashed changes
 // index  : integer position (0, 1, 2…)
 // isFirst: boolean — first card cannot be removed
 function buildPetEntry(index, isFirst) {
@@ -1347,10 +1439,17 @@ function buildPetEntry(index, isFirst) {
         </div>
 
         <div class="field-group" style="margin-top:8px;margin-bottom:0;">
+<<<<<<< Updated upstream
             <label class="field-label">Check-In Verifications (Reference Only)</label>
             <div class="info-note" style="margin-bottom:10px;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 These are for staff reference only at walk-in. They will be saved when the first booking is created for this pet.
+=======
+            <label class="field-label">Check-In Verifications</label>
+            <div class="info-note" style="margin-bottom:10px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                These are noted for reference. They will be stored on the booking record when the first booking is created for this pet.
+>>>>>>> Stashed changes
             </div>
             <div class="check-group">
                 <label class="check-label">
@@ -1386,6 +1485,10 @@ function buildPetEntry(index, isFirst) {
                     </span>
                 </label>
             </div>
+<<<<<<< Updated upstream
+=======
+            <span class="file-hint" style="margin-top:8px;">These will be saved on the booking record when the first booking is created for this pet.</span>
+>>>>>>> Stashed changes
         </div>
     </div>`;
 }
@@ -1400,18 +1503,25 @@ function escHtml(str) {
 }
 
 // ── Render document list in edit modal ─────────────────────
+<<<<<<< Updated upstream
 // FIX: Filters documents by pet ID, normalises filepaths,
 // and guards against null/undefined VERIFICATION_STATUS values.
 function renderDocuments(documents, currentPetId) {
     const container = document.getElementById('editDocumentsList');
     // Coerce both sides to string for safe comparison (Oracle may return int)
     const petDocs = documents.filter(d => String(d.PET_ID) === String(currentPetId));
+=======
+function renderDocuments(documents, currentPetId) {
+    const container = document.getElementById('editDocumentsList');
+    const petDocs   = documents.filter(d => String(d.PET_ID) === String(currentPetId));
+>>>>>>> Stashed changes
 
     if (petDocs.length === 0) {
         container.innerHTML = '<div class="doc-empty">No documents uploaded for this pet yet.</div>';
         return;
     }
 
+<<<<<<< Updated upstream
     const validStatuses = ['approved', 'pending', 'rejected'];
 
     let html = '<div class="doc-list">';
@@ -1421,22 +1531,41 @@ function renderDocuments(documents, currentPetId) {
         const statusLower = status.toLowerCase();
         const badgeClass  = 'doc-badge-' + (validStatuses.includes(statusLower) ? statusLower : 'none');
         const statusLabel = status;
+=======
+    let html = '<div class="doc-list">';
+    petDocs.forEach(function(doc) {
+        const status      = doc.VERIFICATION_STATUS || 'none';
+        const statusLower = status.toLowerCase();
+        const validStatuses = ['approved', 'pending', 'rejected'];
+        const badgeClass  = 'doc-badge-' + (validStatuses.includes(statusLower) ? statusLower : 'none');
+        const statusLabel = status === 'none' ? 'Unverified' : status;
+>>>>>>> Stashed changes
         const dotColor    = statusLower === 'approved' ? '#22c55e'
                           : statusLower === 'pending'  ? '#f59e0b'
                           : statusLower === 'rejected' ? '#ef4444'
                           : '#94a3b8';
 
+<<<<<<< Updated upstream
         // Normalise filepath:
         //   1. Replace any Windows backslashes with forward slashes
         //   2. Ensure path starts with / so it is root-relative on the web server
         let filepath = (doc.FILEPATH || '').replace(/\\/g, '/').trim();
+=======
+        // Normalise filepath: ensure it starts with / and uses forward slashes
+        let filepath = (doc.FILEPATH || '').replace(/\\/g, '/');
+>>>>>>> Stashed changes
         if (filepath && !filepath.startsWith('/') && !filepath.startsWith('http')) {
             filepath = '/' + filepath;
         }
         if (!filepath) filepath = '#';
 
+<<<<<<< Updated upstream
         const uploadDate   = doc.UPLOAD_DATE  || '—';
         const verifiedDate = doc.DATE_VERIFIED ? ' &middot; Verified: ' + doc.DATE_VERIFIED : '';
+=======
+        const uploadDate   = doc.UPLOAD_DATE   || '—';
+        const verifiedDate = doc.DATE_VERIFIED  ? ' &middot; Verified: ' + doc.DATE_VERIFIED : '';
+>>>>>>> Stashed changes
 
         html += `<div class="doc-item">
             <div class="doc-icon">
@@ -1464,11 +1593,17 @@ function renderDocuments(documents, currentPetId) {
 // DOM READY
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
+<<<<<<< Updated upstream
     // Module-level state shared across functions
     let ownerPets    = [];   // array of pet objects for the currently loaded owner
     let allDocuments = [];   // array of document objects for all active pets of the owner
 
     const petSelectEl = document.getElementById('modalPetSelect');
+=======
+    const ownerSelect = document.getElementById('modalPetSelect');
+    let ownerPets    = [];
+    let allDocuments = [];
+>>>>>>> Stashed changes
 
     // ── Seed the create modal with Pet #1 on load ──────────
     const petContainer = document.getElementById('modalPetContainer');
@@ -1504,12 +1639,17 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // ── Edit button wiring ─────────────────────────────────
+<<<<<<< Updated upstream
     // FIX: removed duplicate openModal() from the onclick attribute in the
     // button HTML — we open the modal HERE after data has started loading,
     // preventing a flash of empty/stale fields.
     document.querySelectorAll('.edit-owner-btn').forEach(button => {
         button.addEventListener('click', function() {
             openModal('editOwnerModal');
+=======
+    document.querySelectorAll('.edit-owner-btn').forEach(button => {
+        button.addEventListener('click', function() {
+>>>>>>> Stashed changes
             loadOwnerData(this.getAttribute('data-owner-id'));
         });
     });
@@ -1544,11 +1684,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+<<<<<<< Updated upstream
     // ── Pet select change → refresh fields, docs, checkboxes ──
     // FIX: When the user switches pets in the dropdown we look up the pet
     // object from the ownerPets cache (already loaded), fill all fields,
     // and re-render the document list — no extra round-trip needed.
     petSelectEl.addEventListener('change', function() {
+=======
+    // ── Pet select change → refresh fields + docs + checkboxes ──
+    ownerSelect.addEventListener('change', function() {
+>>>>>>> Stashed changes
         const selectedPet = ownerPets.find(p => String(p.PET_ID) === this.value);
         if (selectedPet) {
             document.getElementById('modalPetId').value = selectedPet.PET_ID;
@@ -1583,10 +1728,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ── Load owner data via AJAX ───────────────────────────
     function loadOwnerData(ownerId) {
+<<<<<<< Updated upstream
         // Reset UI while loading
         document.getElementById('editDocumentsList').innerHTML = '<div class="doc-loading">Loading documents&hellip;</div>';
         document.getElementById('modalAlert').style.display = 'none';
         resetAllCheckboxes();
+=======
+        document.getElementById('editDocumentsList').innerHTML = '<div class="doc-loading">Loading documents&hellip;</div>';
+        document.getElementById('modalAlert').style.display = 'none';
+>>>>>>> Stashed changes
 
         fetch('owner.php', {
             method: 'POST',
@@ -1597,17 +1747,25 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (!data.success) { showAlert('modalAlert', 'error', data.message); return; }
 
+<<<<<<< Updated upstream
             const owner  = data.data.owner;
             ownerPets    = data.data.pets      || [];
             allDocuments = data.data.documents || [];
 
             // Populate owner fields
+=======
+            const owner = data.data.owner;
+            ownerPets    = data.data.pets      || [];
+            allDocuments = data.data.documents || [];
+
+>>>>>>> Stashed changes
             document.getElementById('modalOwnerId').value       = owner.OWNER_ID;
             document.getElementById('modalOwnerCode').value     = 'OWN-' + String(owner.OWNER_ID).padStart(4, '0');
             document.getElementById('modalFirstName').value     = owner.FIRST_NAME;
             document.getElementById('modalLastName').value      = owner.LAST_NAME;
             document.getElementById('modalContactNumber').value = owner.CONTACT_NUMBER;
 
+<<<<<<< Updated upstream
             // Populate pet dropdown
             petSelectEl.innerHTML = '';
             if (ownerPets.length === 0) {
@@ -1623,10 +1781,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+=======
+            // Populate pet select
+            ownerSelect.innerHTML = '';
+>>>>>>> Stashed changes
             ownerPets.forEach(pet => {
                 const opt = document.createElement('option');
                 opt.value       = pet.PET_ID;
                 opt.textContent = pet.PET_NAME;
+<<<<<<< Updated upstream
                 petSelectEl.appendChild(opt);
             });
 
@@ -1638,11 +1801,34 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(error => {
             showAlert('modalAlert', 'error', 'Unable to load owner data. Please try again.');
+=======
+                ownerSelect.appendChild(opt);
+            });
+
+            if (ownerPets.length > 0) {
+                ownerSelect.value = ownerPets[0].PET_ID;
+                document.getElementById('modalPetId').value = ownerPets[0].PET_ID;
+                fillPetFields(ownerPets[0]);
+                renderDocuments(allDocuments, ownerPets[0].PET_ID);
+            } else {
+                document.getElementById('modalPetId').value = '';
+                ['modalPetName','modalPetCategory','modalPetWeight','modalFeedingTime','modalPortion'].forEach(id => {
+                    document.getElementById(id).value = '';
+                });
+                document.getElementById('modalPetSex').value = 'Male';
+                resetAllCheckboxes();
+                document.getElementById('editDocumentsList').innerHTML = '<div class="doc-empty">No pets registered for this owner.</div>';
+            }
+        })
+        .catch(error => {
+            showAlert('modalAlert', 'error', 'Unable to load owner data.');
+>>>>>>> Stashed changes
             console.error(error);
         });
     }
 
     // ── Fill edit modal pet fields + restore checkbox states ──
+<<<<<<< Updated upstream
     // FIX: setCheckbox() is now called with the correct boolean derived from
     // the 'Yes'/'No' strings that PHP's NVL() guarantees — this is what
     // was silently failing before (checkbox.checked was never set to true).
@@ -1657,12 +1843,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Restore verification checkbox states from the most-recent-booking values.
         // PHP's NVL() guarantees each field is 'Yes' or 'No' — never null.
+=======
+    function fillPetFields(pet) {
+        document.getElementById('modalPetId').value       = pet.PET_ID;
+        document.getElementById('modalPetName').value     = pet.PET_NAME;
+        document.getElementById('modalPetCategory').value = pet.CATEGORY_ID;
+        document.getElementById('modalPetWeight').value   = pet.WEIGHT;
+        document.getElementById('modalPetSex').value      = pet.SEX || 'Male';
+        document.getElementById('modalFeedingTime').value = pet.FEEDING_TIME  || '';
+        document.getElementById('modalPortion').value     = pet.FEEDING_PORTION || '';
+
+        // Restore verification checkbox states from the latest booking values
+        // The PHP query uses NVL(…,'No') so values are always 'Yes' or 'No'.
+>>>>>>> Stashed changes
         setCheckbox(document.getElementById('modalConsentForm'), pet.CONSENT_FORM_SIGNED === 'Yes');
         setCheckbox(document.getElementById('modalNexgard'),     pet.NEXGARD_VERIFIED    === 'Yes');
         setCheckbox(document.getElementById('modalOcularExam'),  pet.OCULAR_EXAM_PASSED  === 'Yes');
         setCheckbox(document.getElementById('modalVetcard'),     pet.VETCARD_VERIFIED    === 'Yes');
     }
 
+<<<<<<< Updated upstream
     // ── Clear all pet fields (used when owner has no pets) ─
     function clearPetFields() {
         ['modalPetName', 'modalPetWeight', 'modalFeedingTime', 'modalPortion'].forEach(id => {
@@ -1675,6 +1875,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── Reset all four checkboxes to unchecked ─────────────
     function resetAllCheckboxes() {
         ['modalConsentForm', 'modalNexgard', 'modalOcularExam', 'modalVetcard'].forEach(id => {
+=======
+    // ── Reset all four checkboxes to unchecked ─────────────
+    function resetAllCheckboxes() {
+        ['modalConsentForm','modalNexgard','modalOcularExam','modalVetcard'].forEach(id => {
+>>>>>>> Stashed changes
             setCheckbox(document.getElementById(id), false);
         });
     }
